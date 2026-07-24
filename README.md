@@ -38,10 +38,10 @@ HideXs concedeu autorização expressa para que esta adaptação brasileira seja
 2. Copie a pasta para:
 
 ```text
-World of Warcraft\Interface\AddOns\
+Ascension\Launcher\resources\ascension-live\Interface\AddOns
 ```
 
-3. Confirme que o arquivo `.toc` está diretamente dentro da pasta do addon (`World of Warcraft\Interface\AddOns\AscensionPTBR\AscensionPTBR.toc`).
+3. Confirme que o arquivo `.toc` está diretamente dentro da pasta do addon (`Ascension\Launcher\resources\ascension-live\Interface\AddOns\AscensionPTBR\AscensionPTBR.toc`).
 4. Abra o jogo e ative o addon na tela de seleção de personagens.
 5. Quando necessário, marque a opção para carregar addons desatualizados.
 
