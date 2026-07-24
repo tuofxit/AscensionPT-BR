@@ -4,6 +4,7 @@ AscensionPTBR = APT
 APT.SpellNameEN2PT = APT.SpellNameEN2PT or {}
 APT.NameToIDs      = APT.NameToIDs or {}
 APT.DescPairs      = APT.DescPairs or {}
+APT.DescByPrefix   = APT.DescByPrefix or {}
 APT.DescByID       = APT.DescByID or {}
 APT.TipPairs       = APT.TipPairs or {}
 APT.TipByID        = APT.TipByID or {}
@@ -162,6 +163,45 @@ local function TranslateBodyByPairs(tip, pairIndexes, pairsTable)
     end
     return false
 end
+
+local function PrefijoDe(texto, cuantas)
+    local s = texto:gsub("|c%x+", ""):gsub("|r", ""):gsub("|n", " ")
+    local p, n = {}, 0
+    for w in s:gmatch("%a+") do
+        n = n + 1
+        p[n] = w:lower()
+        if n == cuantas then break end
+    end
+    return table.concat(p, " ")
+end
+
+local function TranslateBodyByPrefix(tip)
+    local name = tip:GetName()
+    local done = false
+    for i = 2, tip:NumLines() do
+        local fs = _G[name .. "TextLeft" .. i]
+        local text = fs and fs:GetText()
+        if text and #text > 12 then
+            for cuantas = 8, 3, -1 do
+                local pref = PrefijoDe(text, cuantas)
+                if #pref >= 8 then
+                    local c = APT.DescByPrefix and APT.DescByPrefix[pref]
+                    if c and TryPairSet(fs, text, c, APT.DescPairs) then
+                        done = true
+                        break
+                    end
+                    c = APT.TipByPrefix and APT.TipByPrefix[pref]
+                    if c and TryPairSet(fs, text, c, APT.TipPairs) then
+                        done = true
+                        break
+                    end
+                end
+            end
+        end
+    end
+    return done
+end
+APT.TranslateBodyByPrefix = TranslateBodyByPrefix
 
 local function TranslateSpellWord(w)
     local map = APT.SpellNameEN2PT
@@ -585,6 +625,8 @@ local function OnSpellTooltip(tip)
         end
     end
 
+    pcall(TranslateBodyByPrefix, tip)
+
     ApplyLinePatterns(tip)
     ScheduleLatePass(tip)
     tip:Show()
@@ -679,6 +721,8 @@ local function OnItemTooltip(tip)
             end
         end
     end
+
+    pcall(TranslateBodyByPrefix, tip)
 
     ApplyLinePatterns(tip)
     ScheduleLatePass(tip)
