@@ -26,7 +26,8 @@ Este projeto é baseado no **AscensionES**, criado originalmente por **HideXs**.
 
 - **Criador original:** HideXs
 - **Projeto original:** AscensionES
-- **Adaptação pt-BR:** GabrielBosco e Tuofxit (Bolin)
+- **Repositório original:** https://github.com/HideXs/AscensionES
+- **Adaptação pt-BR:** Tuofxit (Bolin)
 
 HideXs concedeu autorização expressa para que esta adaptação brasileira seja publicada e distribuída gratuitamente no GitHub.
 
