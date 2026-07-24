@@ -10,7 +10,7 @@ Este repositório contém a tradução completa do AddOn **Ascension** para o se
 - Correção de espaçamentos e ajustes de UI que evitavam overflow de caixas de mensagem.
 - Implementação de um fallback (`APT.Fallback`) para garantir que qualquer string ainda não presente em `CustomUI.lua` ou `UIStrings.lua` seja traduzida automaticamente em tempo de execução.
 - Otimização do laço de atualização dinâmica (`dynamicUIDriver`) para que as traduções apareçam quase instantaneamente (de 2.5 s → 0.4 s).
-- Criação do pacote zip `GabrielBosco-AscensionPTBR.zip` pronto para ser instalado.
+- Criação do pacote zip `AscensionPTBR.zip` pronto para ser instalado.
 
 ### Como funciona?
 O AddOn carrega duas tabelas de tradução:
@@ -19,11 +19,11 @@ O AddOn carrega duas tabelas de tradução:
 A função `TranslateStaticText` foi modificada para procurar nas duas tabelas antes de tentar um fallback de base, garantindo cobertura total.
 
 ### Instalação
-1. Baixe o arquivo `GabrielBosco-AscensionPTBR.zip` na pasta `addons` do seu cliente WoW.
+1. Baixe o arquivo `AscensionPTBR.zip` na pasta `addons` do seu cliente WoW.
 2. Reinicie o jogo; as novas traduções aparecerão em todas as janelas do Ascension.
 
 ### Contribuição
 Sinta‑se à vontade para abrir *issues* ou *pull requests* caso encontre texto ainda não traduzido ou deseje melhorar alguma tradução.
 
 ---
-*Tradução realizada por **[seu nome / usuário]** com a ajuda do assistente de IA Antigravity. O addon agora está quase totalmente em PT‑BR, proporcionando uma experiência mais imersiva e fluida para a comunidade brasileira.*
+*Tradução realizada por **Tuofxit** com a ajuda do assistente de IA . O addon agora está quase totalmente em PT‑BR, proporcionando uma experiência mais imersiva e fluida para a comunidade brasileira.*
