@@ -2,7 +2,7 @@
 
 Adaptação comunitária **não oficial** do addon **AscensionES** para **Português do Brasil (pt-BR)**, criada para jogadores brasileiros do **Project Ascension**.
 
-> **Importante:** este projeto é gratuito, não comercial e não possui vínculo oficial com o Project Ascension, a Blizzard Entertainment ou o World of Warcraft.
+> **Importante:** este projeto é gratuito, não comercial e não possui vínculo oficial com o Project Ascension
 
 ---
 
