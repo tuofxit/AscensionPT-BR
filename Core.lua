@@ -385,14 +385,6 @@ local function TranslateTooltipLines(tip)
                 text = fs:GetText()
 
                 local new = text
-                -- Variantes do Ascension que chegam sem um ID de feitiço confiável.
-                new = new:gsub("An aggressive stance%. Your melee and ranged critical strike chance is increased by (%d+)%%%.",
-                    "Postura agressiva. Sua chance de acerto crítico corpo a corpo e à distância aumenta em %1%%.")
-                new = new:gsub("Unleashes the energy of a Seal spell to judge an enemy for (%d+) sec, granting auto attacks and auto shots made against the judged enemy a chance of healing the attacker for (%d+)%% of their base health%.",
-                    "Libera a energia de um Selo para julgar o inimigo por %1 s. Ataques e disparos automáticos contra ele podem curar o atacante em %2%% da vida base.")
-                new = new:gsub("You haven't added this to your action bar", "Esta habilidade não está na barra de ações")
-                new = new:gsub("^Cost: (%d+)", "Custo: %1")
-                new = new:gsub("^Level: (%d+)", "Nível: %1")
                 for _, p in ipairs(APT.AnywherePlain or {}) do
                     local s = new:find(p[1], 1, true)
                     if s then
@@ -784,9 +776,6 @@ end
 
 function TranslateStaticText(t)
     local es = (APT.CustomUI and APT.CustomUI[t]) or (APT.UIStringsByEN and APT.UIStringsByEN[t])
-    if es then return es end
-    -- fallback dictionary for any missing strings
-    es = (APT.Fallback and APT.Fallback[t])
     if es then return es end
 
     local base, tail = t:match("^(.-)%s*(:?)%s*$")
