@@ -29,6 +29,12 @@ APT.AchDesc        = APT.AchDesc or {}
 APT.AchDescEN      = APT.AchDescEN or {}
 APT.AchReward      = APT.AchReward or {}
 APT.AchRewardEN    = APT.AchRewardEN or {}
+APT.TalentUIExact  = APT.TalentUIExact or {}
+APT.TalentUIGlobals = APT.TalentUIGlobals or {}
+
+-- Aliases para compatibilidade com TalentRuntime.lua e QuestUI
+APT.SpellNameEN2ES  = APT.SpellNameEN2PT
+APT.QuestTitleEN2ES = APT.QuestTitleEN2PT
 
 local db
 
@@ -359,15 +365,57 @@ local function CollectTooltipFontStrings(tip)
     return list
 end
 
+local QUEST_TOOLTIP_STATIC = {
+    ["You are participating in this quest"] = "Você está participando desta missão",
+    ["You are participating in this quest."] = "Você está participando desta missão.",
+    ["You are not participating in this quest"] = "Você não está participando desta missão",
+    ["You are not participating in this quest."] = "Você não está participando desta missão.",
+    ["You do not meet the requirements for this quest"] = "Você não cumpre os requisitos desta missão",
+    ["Requirements"] = "Requisitos",
+    ["Requirements:"] = "Requisitos:",
+}
+
+local function TranslateQuestTooltipText(text)
+    if not (db and db.quests) or type(text) ~= "string" or text == "" then return nil end
+    local function render(v)
+        return APT.QuestRenderPT and APT.QuestRenderPT(v) or v
+    end
+    local direct = (APT.QuestUIExact and APT.QuestUIExact[text])
+        or QUEST_TOOLTIP_STATIC[text]
+        or (APT.QuestTitleEN2PT and APT.QuestTitleEN2PT[text])
+        or (APT.QuestObjectiveEN2PT and APT.QuestObjectiveEN2PT[text])
+    if direct and direct ~= false then return render(direct) end
+    local prefix, body = text:match("^(%s*[-•]%s*)(.-)%s*$")
+    if body and body ~= "" then
+        local translated = (APT.QuestUIExact and APT.QuestUIExact[body])
+            or (APT.QuestTitleEN2PT and APT.QuestTitleEN2PT[body])
+            or (APT.QuestObjectiveEN2PT and APT.QuestObjectiveEN2PT[body])
+            or QUEST_TOOLTIP_STATIC[body]
+        if translated and translated ~= false then return prefix .. render(translated) end
+    end
+    return nil
+end
+
 local function TranslateTooltipLines(tip)
     if not db then return end
     local tipName = tip:GetName()
+    local first = _G[tipName .. "TextLeft1"]
+    local firstText = first and first:GetText()
+    local firstQuestText = firstText and TranslateQuestTooltipText(firstText)
+    if firstQuestText then pcall(first.SetText, first, firstQuestText) end
     local contexts = {}
     local contextIds = nil
     for _, fs in ipairs(CollectTooltipFontStrings(tip)) do
         local text = fs and fs:GetText()
         if text and text ~= "" then
             local changed = false
+
+            local questText = TranslateQuestTooltipText(text)
+            if questText then
+                pcall(fs.SetText, fs, questText)
+                text = questText
+                changed = true
+            end
 
             if db.spells and text:find("\n") then
                 local nt = TranslateMultilineText(text)
@@ -507,25 +555,31 @@ local function TranslateTooltipLines(tip)
 
                 do
                     local pre, preES
-                    if new:sub(1, 7) == "Equipar: " then
+                    if new:sub(1, 9) == "Equipar: " then
                         pre, preES = "Equipar: ", "Equipar: "
-                    elseif new:sub(1, 5) == "Usar: " then
+                    elseif new:sub(1, 7) == "Equip: " then
+                        pre, preES = "Equip: ", "Equipar: "
+                    elseif new:sub(1, 6) == "Usar: " then
                         pre, preES = "Usar: ", "Uso: "
-                    elseif new:sub(1, 15) == "Chance ao acertar: " then
+                    elseif new:sub(1, 5) == "Use: " then
+                        pre, preES = "Use: ", "Uso: "
+                    elseif new:sub(1, 19) == "Chance ao acertar: " then
                         pre, preES = "Chance ao acertar: ", "Chance ao acertar: "
+                    elseif new:sub(1, 15) == "Chance on hit: " then
+                        pre, preES = "Chance on hit: ", "Chance ao acertar: "
                     end
                     if pre and APT.TranslateSystemText then
                         local rest = new:sub(#pre + 1)
 
-                        local body, cd = rest:match("^(.-)%s+(%(%d+ %a+%.? Recarga%))$")
+                        local body, cd = rest:match("^(.-)%s+(%(%d+ %a+%.? (?:Cooldown|Recarga)%)$)")
                         body = body or rest
                         local tr = APT.TranslateSystemText(body)
                         local cdES
                         if cd then
-                            cdES = cd:gsub("%((%d+) Min Recarga%)", "(Tiempo de reutilizaci\195\179n: %1 min)")
-                            cdES = cdES:gsub("%((%d+) Sec Recarga%)", "(Tiempo de reutilizaci\195\179n: %1 s)")
-                            cdES = cdES:gsub("%((%d+) Hrs? Recarga%)", "(Tiempo de reutilizaci\195\179n: %1 h)")
-                            cdES = cdES:gsub("%((%d+) Days? Recarga%)", "(Tiempo de reutilizaci\195\179n: %1 d)")
+                            cdES = cd:gsub("%((%d+) Min (?:Cooldown|Recarga)%)", "(Recarga: %1 min)")
+                            cdES = cdES:gsub("%((%d+) Sec (?:Cooldown|Recarga)%)", "(Recarga: %1 s)")
+                            cdES = cdES:gsub("%((%d+) Hrs? (?:Cooldown|Recarga)%)", "(Recarga: %1 h)")
+                            cdES = cdES:gsub("%((%d+) Days? (?:Cooldown|Recarga)%)", "(Recarga: %1 d)")
                         end
                         if tr ~= body or (cdES and cdES ~= cd) then
                             new = preES .. tr .. (cdES and (" " .. cdES) or "")
@@ -560,6 +614,13 @@ local function TranslateTooltipLines(tip)
                     local tr = APT.TranslateSystemTextStrict(text)
                     if tr ~= text then fs:SetText(tr) end
                 end
+                if db.ui then
+                    local esUI = (APT.CustomUI and APT.CustomUI[text])
+                        or (APT.UIStringsByEN and APT.UIStringsByEN[text])
+                    if esUI then
+                        fs:SetText(esUI)
+                    end
+                end
             end
         end
     end
@@ -567,7 +628,11 @@ end
 
 local ApplyLinePatterns = TranslateTooltipLines
 
-local latePassTip, latePassElapsed, latePassShots
+local hookedFontStrings = setmetatable({}, { __mode = "k" })
+local inAPTSet = false
+local HookFSForTranslation
+
+local latePassTip, latePassElapsed
 local latePassDriver = CreateFrame("Frame")
 latePassDriver:SetScript("OnUpdate", function(self, dt)
     if not latePassTip then return end
@@ -576,23 +641,25 @@ latePassDriver:SetScript("OnUpdate", function(self, dt)
         return
     end
     latePassElapsed = latePassElapsed + (dt or 0.02)
-
-    if (latePassShots == 0 and latePassElapsed >= 0.25)
-        or (latePassShots == 1 and latePassElapsed >= 1.0) then
-        latePassShots = latePassShots + 1
-        pcall(TranslateTooltipLines, latePassTip)
-        if latePassShots >= 2 then
-            latePassTip = nil
+    if latePassElapsed < 0.05 then return end
+    latePassElapsed = 0
+    local nm = latePassTip:GetName()
+    local ok, n = pcall(function() return latePassTip:NumLines() end)
+    if ok and n then
+        for i = 1, n do
+            local fs = _G[nm .. "TextLeft" .. i]
+            if fs then HookFSForTranslation(fs) end
+            local fsr = _G[nm .. "TextRight" .. i]
+            if fsr then HookFSForTranslation(fsr) end
         end
     end
+    pcall(TranslateTooltipLines, latePassTip)
 end)
 
 local function ScheduleLatePass(tip)
-    if tip.IsVisible then
-        latePassTip = tip
-        latePassElapsed = 0
-        latePassShots = 0
-    end
+    if not (tip and tip.IsVisible) then return end
+    latePassTip = tip
+    latePassElapsed = 0
 end
 
 local function OnSpellTooltip(tip)
@@ -629,7 +696,6 @@ local function OnSpellTooltip(tip)
 
     ApplyLinePatterns(tip)
     ScheduleLatePass(tip)
-    tip:Show()
 end
 
 local function OnAuraTooltip(tip, unit, index, filter)
@@ -654,7 +720,6 @@ local function OnAuraTooltip(tip, unit, index, filter)
     end
 
     ApplyLinePatterns(tip)
-    tip:Show()
 end
 
 local function OnItemTooltip(tip)
@@ -662,8 +727,9 @@ local function OnItemTooltip(tip)
     local _, link = tip:GetItem()
     local itemID = link and tonumber(link:match("item:(%d+)"))
     local name = tip:GetName()
+    if not itemID then return end
 
-    if itemID and APT.ItemName[itemID] then
+    if APT.ItemName[itemID] then
         local L1 = _G[name .. "TextLeft1"]
         local text = L1 and L1:GetText()
         local guard = APT.ItemNameEN[itemID]
@@ -688,11 +754,20 @@ local function OnItemTooltip(tip)
             for i = 2, tip:NumLines() do
                 local fs = _G[name .. "TextLeft" .. i]
                 local t = fs and fs:GetText()
-                if t and (t:find("^Usar: ") or t:find("^Uso: ") or t:find("^Equipar: ") or t:find("^Equipar: ")) then
+                if t and (t:find("^Use: ") or t:find("^Uso: ") or t:find("^Usar: ") or t:find("^Equip: ") or t:find("^Equipar: ") or t:find("^Chance on hit: ") or t:find("^Chance ao acertar: ")) then
+                    local pref, body = t:match("^(%a+:%s*)(.+)$")
                     for _, sid in ipairs(sIds) do
                         if (APT.TipByID[sid] and TryPairSet(fs, t, APT.TipByID[sid], APT.TipPairs))
                             or (APT.DescByID[sid] and TryPairSet(fs, t, APT.DescByID[sid], APT.DescPairs)) then
                             break
+                        end
+                        if body then
+                            local nt = MatchPairSet(body, APT.TipByID[sid], APT.TipPairs)
+                                or MatchPairSet(body, APT.DescByID[sid], APT.DescPairs)
+                            if nt then
+                                pcall(fs.SetText, fs, pref .. nt)
+                                break
+                            end
                         end
                     end
                     break
@@ -723,10 +798,8 @@ local function OnItemTooltip(tip)
     end
 
     pcall(TranslateBodyByPrefix, tip)
-
     ApplyLinePatterns(tip)
     ScheduleLatePass(tip)
-    tip:Show()
 end
 
 local function OnUnitTooltip(tip)
@@ -754,7 +827,6 @@ local function OnUnitTooltip(tip)
     end
 
     ApplyLinePatterns(tip)
-    tip:Show()
 end
 
 local function TranslateShortText(text)
@@ -819,13 +891,62 @@ local function ApplyUIStrings()
 end
 
 function TranslateStaticText(t)
-    local es = (APT.CustomUI and APT.CustomUI[t]) or (APT.UIStringsByEN and APT.UIStringsByEN[t])
+    local es = (APT.TalentUIExact and APT.TalentUIExact[t])
+        or (APT.CustomUI and APT.CustomUI[t])
+        or (APT.ServerUI and APT.ServerUI[t])
+        or (APT.UIStringsByEN and APT.UIStringsByEN[t])
     if es then return es end
 
     local base, tail = t:match("^(.-)%s*(:?)%s*$")
     if base and base ~= t and base ~= "" then
-        es = (APT.CustomUI and APT.CustomUI[base]) or (APT.UIStringsByEN and APT.UIStringsByEN[base])
+        es = (APT.TalentUIExact and APT.TalentUIExact[base])
+            or (APT.CustomUI and APT.CustomUI[base])
+            or (APT.ServerUI and APT.ServerUI[base])
+            or (APT.UIStringsByEN and APT.UIStringsByEN[base])
         if es then return es .. (tail or "") end
+    end
+
+    local c0, inner, r0 = t:match("^(|c%x%x%x%x%x%x%x%x)(.-)(|r)%s*$")
+    if inner and inner ~= "" and not inner:find("|c") then
+        local es2 = (APT.TalentUIExact and APT.TalentUIExact[inner])
+            or (APT.CustomUI and APT.CustomUI[inner])
+            or (APT.ServerUI and APT.ServerUI[inner])
+            or (APT.UIStringsByEN and APT.UIStringsByEN[inner])
+        if es2 then return c0 .. es2 .. r0 end
+    end
+
+    local p1, p2 = t:match("^Page (%d+) of (%d+)$")
+    if p1 then return "Página " .. p1 .. " de " .. p2 end
+
+    if APT.ServerUINoColor and t:find("|c", 1, true) then
+        local limpio = t:gsub("|c%x%x%x%x%x%x%x%x", ""):gsub("|r", "")
+        local es3 = APT.ServerUINoColor[limpio]
+        if es3 then return es3 end
+    end
+
+    if db and db.spells and APT.SpellNameEN2PT and #t >= 4 and t:match("^%u") then
+        local esSpell = APT.SpellNameEN2PT[t]
+        if esSpell and esSpell ~= t then return esSpell end
+    end
+    return nil
+end
+
+APT.TranslateStaticText = TranslateStaticText
+
+APT.TranslateDescriptionString = function(text)
+    if type(text) ~= "string" or text == "" then return nil end
+    if text:find("\n", 1, true) then
+        local multi = TranslateMultilineText(text)
+        if multi and multi ~= text then return multi end
+    end
+    for words = 8, 3, -1 do
+        local pref = PrefijoDe(text, words)
+        local indexes = pref ~= "" and APT.DescByPrefix and APT.DescByPrefix[pref]
+        local translated = indexes and MatchPairSet(text, indexes, APT.DescPairs)
+        if translated and translated ~= text then return translated end
+        indexes = pref ~= "" and APT.TipByPrefix and APT.TipByPrefix[pref]
+        translated = indexes and MatchPairSet(text, indexes, APT.TipPairs)
+        if translated and translated ~= text then return translated end
     end
     return nil
 end
@@ -857,11 +978,111 @@ local function RetranslateStaticUI()
     end
 end
 
+local HookUIFS
+
+local LIVE_UI_FRAMES = { "PathToAscensionFrame", "AscensionLFGFrame",
+                         "AscensionPVEFrame", "AscensionPVPFrame",
+                         "AscensionRulesetFrame" }
+local function TranslateLiveSubtree(fr, depth)
+    if depth > 8 then return end
+    local ok, regions = pcall(function() return { fr:GetRegions() } end)
+    if ok and regions then
+        for _, r in ipairs(regions) do
+            if r.IsObjectType and r:IsObjectType("FontString") then
+                local t = r.GetText and r:GetText()
+                if t and t ~= "" then
+                    local es = TranslateStaticText(t)
+                    if es and es ~= t then pcall(r.SetText, r, es) end
+                end
+            end
+        end
+    end
+    local okc, children = pcall(function() return { fr:GetChildren() } end)
+    if okc and children then
+        for _, c in ipairs(children) do
+            TranslateLiveSubtree(c, depth + 1)
+        end
+    end
+end
+local function TranslateLiveFramesOnce()
+    if not (db and db.ui) then return end
+    for _, fname in ipairs(LIVE_UI_FRAMES) do
+        local f = _G[fname]
+        if f then pcall(TranslateLiveSubtree, f, 0) end
+    end
+end
+
+local function PrimeStaticSubtree(root, depth)
+    if not root then return end
+    depth = depth or 0
+    if depth > 10 then return end
+    local ok, regions = pcall(function() return { root:GetRegions() } end)
+    if ok and regions then
+        for _, r in ipairs(regions) do
+            if r and r.IsObjectType and r:IsObjectType("FontString") then
+                local t = r.GetText and r:GetText()
+                if type(t) == "string" and t ~= "" then
+                    local es = TranslateStaticText(t)
+                    if es and es ~= t then pcall(r.SetText, r, es) end
+                end
+                if HookUIFS then pcall(HookUIFS, r) end
+            end
+        end
+    end
+    local okc, children = pcall(function() return { root:GetChildren() } end)
+    if okc and children then
+        for _, child in ipairs(children) do
+            PrimeStaticSubtree(child, depth + 1)
+        end
+    end
+end
+
+local staticPassTimer
+local staticPassPanel
+local function StaticPassSoon(panel)
+    staticPassPanel = panel or staticPassPanel
+    if staticPassPanel then pcall(PrimeStaticSubtree, staticPassPanel, 0) end
+    RetranslateStaticUI()
+    if not staticPassTimer then staticPassTimer = CreateFrame("Frame") end
+    local elapsed, shots = 0, 0
+    staticPassTimer:SetScript("OnUpdate", function(self, dt)
+        elapsed = elapsed + (dt or 0)
+        local wait = shots == 0 and 0.03 or 0.15
+        if elapsed < wait then return end
+        elapsed = 0
+        shots = shots + 1
+        if staticPassPanel then pcall(PrimeStaticSubtree, staticPassPanel, 0) end
+        if shots == 1 then RetranslateStaticUI() end
+        if shots >= 2 then
+            staticPassPanel = nil
+            self:SetScript("OnUpdate", nil)
+        end
+    end)
+end
+
+local staticHooked = {}
 local function HookStaticPanels()
-    for _, name in ipairs({ "GameMenuFrame", "VideoOptionsFrame", "InterfaceOptionsFrame", "AchievementFrame", "SpellBookFrame" }) do
+    pcall(TranslateLiveFramesOnce)
+    for _, name in ipairs({ "GameMenuFrame", "VideoOptionsFrame", "InterfaceOptionsFrame",
+                            "AchievementFrame", "SpellBookFrame",
+
+                            "AscensionLFGFrame", "AscensionPVEFrame", "AscensionPVPFrame",
+                            "AscensionRulesetFrame", "PathToAscensionFrame",
+                            "WarmodeMapFrame", "AscensionWeeklyKeystoneFrame",
+                            "ChannelFrame",
+
+                            "CharacterAdvancement", "CharacterAdvancementFrame", "AscensionCharacterAdvancement",
+                            "ClassTalentFrame", "RaceTalentFrame", "RacialTalentFrame",
+                            "SpecializationFrame", "MentorSpecializationFrame", "Collections",
+                            "WildCardRapidRollingFrame", "DraftHelpFrame",
+                            "SkillCardsFrame", "VanityCollectionFrame" }) do
         local f = _G[name]
-        if f and f.HookScript and f:HasScript("OnShow") then
-            f:HookScript("OnShow", RetranslateStaticUI)
+        if f then
+            pcall(PrimeStaticSubtree, f, 0)
+            if not staticHooked[name] and f.HookScript and f:HasScript("OnShow") then
+                staticHooked[name] = true
+                f:HookScript("OnShow", StaticPassSoon)
+            end
         end
     end
 end
@@ -1192,67 +1413,43 @@ end
 APT.TranslateTradeSkillFrame = TranslateTradeSkillFrame
 APT.TranslateTradeSkillDetail = TranslateTradeSkillDetail
 
+HookFSForTranslation = function(fs)
+    if not fs or not fs.SetText or hookedFontStrings[fs] then return end
+    hookedFontStrings[fs] = true
+    hooksecurefunc(fs, "SetText", function(self, txt)
+        if inAPTSet or not db or type(txt) ~= "string" or txt == "" then return end
+        local translated = TranslateStaticText(txt)
+            or (db.patterns and MatchLinePatterns(txt))
+        if not translated and APT.TranslateSystemTextStrict and not txt:find("\n") then
+            local tr = APT.TranslateSystemTextStrict(txt)
+            if tr ~= txt then translated = tr end
+        end
+        if translated and translated ~= txt then
+            inAPTSet = true
+            pcall(self.SetText, self, translated)
+            inAPTSet = false
+        end
+    end)
+end
+
 local function HookTooltip(tip)
     if not tip then return end
 
-    local inReshow = false
-
-    local function IsCharPanelTooltip(t)
-        local o = t.GetOwner and t:GetOwner()
-        local depth = 0
-        while o and depth < 8 do
-            local n = o.GetName and o:GetName()
-            if n and (n:find("AscensionCharacterStatsPanel", 1, true)
-                or n == "AscensionCharacterFrame") then
-                return true
-            end
-            o = o.GetParent and o:GetParent()
-            depth = depth + 1
-        end
-        return false
-    end
-
-    local function CaptureTip(t)
-        if not (db and db.capture) then return end
-        db.captured = db.captured or {}
-        local nm = t:GetName()
-        for i = 1, t:NumLines() do
-            local fs = _G[nm .. "TextLeft" .. i]
-            local txt = fs and fs:GetText()
-            if txt and txt ~= "" and txt:find("%a") then
-                db.captured[txt] = true
-            end
-        end
-    end
-    if tip:HasScript("OnHide") then
-        tip:HookScript("OnHide", CaptureTip)
-    end
     if tip:HasScript("OnShow") then
         tip:HookScript("OnShow", function(t)
-            if not db or inReshow then return end
-            CaptureTip(t)
-            if IsCharPanelTooltip(t) then return end
-
-            local owner = (t.GetSpell and t:GetSpell()) or (t.GetItem and t:GetItem())
-                or (t.GetUnit and t:GetUnit())
-            if not owner and db.ui then
-                local L1 = _G[t:GetName() .. "TextLeft1"]
-                local txt = L1 and L1:GetText()
-                if txt and txt ~= "" then
-                    local es = TranslateStaticText(txt) or MatchLinePatterns(txt)
-                    if not es and APT.TranslateSystemTextStrict then
-                        local tr = APT.TranslateSystemTextStrict(txt)
-                        if tr ~= txt then es = tr end
-                    end
-                    if es then pcall(L1.SetText, L1, es) end
+            if not db then return end
+            pcall(TranslateTooltipLines, t)
+            ScheduleLatePass(t)
+            local ok, n = pcall(function() return t:NumLines() end)
+            if ok and n then
+                local nm = t:GetName()
+                for i = 1, n do
+                    local fs = _G[nm .. "TextLeft" .. i]
+                    if fs then HookFSForTranslation(fs) end
+                    local fsr = _G[nm .. "TextRight" .. i]
+                    if fsr then HookFSForTranslation(fsr) end
                 end
             end
-            TranslateTooltipLines(t)
-            ScheduleLatePass(t)
-
-            inReshow = true
-            pcall(t.Show, t)
-            inReshow = false
         end)
     end
     if tip:HasScript("OnTooltipSetSpell") then
@@ -2003,18 +2200,25 @@ WrapTitleGetter("GetActiveTitle")
 
 local uiFSHooked = setmetatable({}, { __mode = "k" })
 local inUIFSHook = false
-local function HookUIFS(fs)
+function HookUIFS(fs)
     if uiFSHooked[fs] or not fs.SetText then return end
     uiFSHooked[fs] = true
-    hooksecurefunc(fs, "SetText", function(self, txt)
-        if inUIFSHook or not (db and db.ui) or type(txt) ~= "string" then return end
-        local es = TranslateStaticText(txt)
-        if es and es ~= txt then
-            inUIFSHook = true
-            pcall(self.SetText, self, es)
-            inUIFSHook = false
+
+    for _, metodo in ipairs({ "SetText", "SetFormattedText" }) do
+        if fs[metodo] then
+            pcall(hooksecurefunc, fs, metodo, function(self)
+                if inUIFSHook or not (db and db.ui) then return end
+                local txt = self.GetText and self:GetText()
+                if type(txt) ~= "string" or txt == "" then return end
+                local es = TranslateStaticText(txt)
+                if es and es ~= txt then
+                    inUIFSHook = true
+                    pcall(self.SetText, self, es)
+                    inUIFSHook = false
+                end
+            end)
         end
-    end)
+    end
 end
 
 local function WalkUIExact(root, depth, hookFS)
@@ -2464,6 +2668,82 @@ frame:SetScript("OnEvent", function(self, event, arg1)
     HookTooltip(ShoppingTooltip3)
     HookTooltip(ItemRefShoppingTooltip1)
     HookTooltip(ItemRefShoppingTooltip2)
+
+    local shopTips = {ShoppingTooltip1, ShoppingTooltip2, ShoppingTooltip3,
+                      ItemRefShoppingTooltip1, ItemRefShoppingTooltip2}
+
+    local function TranslateShopTip(tip)
+        if not db or not tip then return end
+        pcall(TranslateTooltipLines, tip)
+        local nm = tip:GetName()
+        local ok, n = pcall(function() return tip:NumLines() end)
+        if ok and n then
+            for i = 1, n do
+                local fs = _G[nm .. "TextLeft" .. i]
+                if fs then
+                    local txt = fs:GetText()
+                    if txt and txt ~= "" then
+                        local tr = TranslateStaticText(txt)
+                            or (db.patterns and MatchLinePatterns(txt))
+                        if not tr and APT.TranslateSystemTextStrict and not txt:find("\n") then
+                            local tr2 = APT.TranslateSystemTextStrict(txt)
+                            if tr2 ~= txt then tr = tr2 end
+                        end
+                        if tr and tr ~= txt then
+                            inAPTSet = true
+                            pcall(fs.SetText, fs, tr)
+                            inAPTSet = false
+                        end
+                    end
+                end
+                local fsr = _G[nm .. "TextRight" .. i]
+                if fsr then
+                    local txtr = fsr:GetText()
+                    if txtr and txtr ~= "" then
+                        local trr = TranslateStaticText(txtr)
+                            or (db.patterns and MatchLinePatterns(txtr))
+                        if not trr and APT.TranslateSystemTextStrict and not txtr:find("\n") then
+                            local tr2 = APT.TranslateSystemTextStrict(txtr)
+                            if tr2 ~= txtr then trr = tr2 end
+                        end
+                        if trr and trr ~= txtr then
+                            inAPTSet = true
+                            pcall(fsr.SetText, fsr, trr)
+                            inAPTSet = false
+                        end
+                    end
+                end
+            end
+        end
+    end
+
+    for _, tip in ipairs(shopTips) do
+        if tip then
+            if tip.SetCompareItem then
+                hooksecurefunc(tip, "SetCompareItem", function(self)
+                    if not db then return end
+                    TranslateShopTip(self)
+                end)
+            end
+            if tip.SetHyperlinkCompareItem then
+                hooksecurefunc(tip, "SetHyperlinkCompareItem", function(self)
+                    if not db then return end
+                    TranslateShopTip(self)
+                end)
+            end
+        end
+    end
+
+    local shopDriver = CreateFrame("Frame")
+    shopDriver:SetScript("OnUpdate", function(self, elapsed)
+        if not db then return end
+        for _, tip in ipairs(shopTips) do
+            if tip and tip:IsVisible() then
+                TranslateShopTip(tip)
+            end
+        end
+    end)
+
     HookAuras()
     HookSpellbook()
     HookAchievementAlerts()

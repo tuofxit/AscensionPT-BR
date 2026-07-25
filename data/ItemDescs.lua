@@ -1,4 +1,4 @@
-AscensionPTBR = AscensionPTBR or {}
+﻿AscensionPTBR = AscensionPTBR or {}
 AscensionPTBR.ItemDesc = {}
 ;(function(T)
 T[1]="Entregue estes cristais ao Mestre de Guerra da sua facção no Bastião Alleriano ou no Bastião Rompepedras para ajudar sua facção a retomar Auchindoun!"
@@ -2442,7 +2442,7 @@ T[28676]="O sombrio coração de Urtrak, comandante da muralha sul de Zeth'gor."
 T[28773]="O machado de Grom Grito Infernal espalhou terror por centenas de campos de batalha."
 T[28787]="É boa ideia entregar aos goblins algo cujo nome contém a palavra \"aniquilador\"?"
 T[28788]="Por heroísmo na Batalha pelo Portal Negro"
-T[28829]="Com sorte, isso será o que busca o espreitador abisal."
+T[28829]="Com sorte, isso será o que busca o espreitador Abissal."
 T[28913]="Pesa muito e está cheia de aparelhos etéreos raros."
 T[28915]="Ensina a evocar esta montaria."
 T[28927]="Ensina a evocar esta montaria."
