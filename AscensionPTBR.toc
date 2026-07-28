@@ -2,7 +2,7 @@
 ## Title: AscensionPTBR |cff33ff99Português (Brasil)|r
 ## Notes: Tradução em Português do Brasil para o Project Ascension, com suporte opcional às vozes ptBR.
 ## Author: HideXs; adaptação ptBR por GabrielBosco & Bolin
-## Version: 1.3.0
+## Version: 1.3.1
 ## X-GitHub-Repo: GabrielBosco/AscensionPTBR
 ## SavedVariables: AscensionPTBRDB
 
@@ -29,6 +29,7 @@ data\QuestUI.lua
 data\TalentUI.lua
 data\Errors.lua
 data\Chat.lua
+data\RuntimeCorrections.lua
 Core.lua
 data\TalentRuntime.lua
 Errors.lua

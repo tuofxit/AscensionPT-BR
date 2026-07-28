@@ -11,33 +11,55 @@ PD:SetGlossary(GlossarioPTBR)
 if not PD.compiled then PD:Compile() end
 
 -- Wrapper 1: TranslateStaticText (global, Core.lua:895) — tooltips + UI
-local OrigTranslateStaticText = TranslateStaticText
+-- Core.lua keeps TranslateStaticText as a local upvalue. Replacing a global
+-- function here cannot affect the Core tooltip path and can leave callers with
+-- a nil original function. Expose a conservative fallback instead; Core opts
+-- into it only after its exact dictionaries have been checked.
+local EnglishWords = {
+  "the", "and", "your", "you", "with", "from", "into", "while", "before",
+  "after", "healing", "damage", "done", "increases", "reduces", "requires",
+  "level", "spell", "power", "rating", "chance", "health", "mana", "energy",
+  "attack", "critical", "bank", "guild", "personal", "soulbound", "items",
+}
 
-TranslateStaticText = function(t)
-  if not t or t == "" then return OrigTranslateStaticText(t) end
-  local ok, pdResult = pcall(PD.Translate, PD, t)
-  if ok and pdResult and pdResult ~= t then return pdResult end
-  return OrigTranslateStaticText(t)
+local function IsSafePatternResult(text)
+  if type(text) ~= "string" or text == "" then return false end
+  local lower = text:lower()
+  for _, word in ipairs(EnglishWords) do
+    if lower:find("%f[%a]" .. word .. "%f[^%a]") then return false end
+  end
+  return true
 end
 
-APT.TranslateStaticText = TranslateStaticText
+APT.TranslatePatternFallback = function(text)
+  if type(text) ~= "string" or text == "" then return nil end
+  local ok, translated = pcall(PD.Translate, PD, text)
+  if ok and translated and translated ~= text and IsSafePatternResult(translated) then
+    return translated
+  end
+  return nil
+end
 
 -- Wrapper 2: APT.TranslateSystemText (Chat.lua:43) — chat messages
 local OrigTranslateSystemText = APT.TranslateSystemText
 
 APT.TranslateSystemText = function(msg)
-  if not msg or msg == "" then return OrigTranslateSystemText(msg) end
-  local ok, pdResult = pcall(PD.Translate, PD, msg)
-  if ok and pdResult and pdResult ~= msg then return pdResult end
-  return OrigTranslateSystemText(msg)
+  if not msg or msg == "" then
+    return type(OrigTranslateSystemText) == "function" and OrigTranslateSystemText(msg) or msg
+  end
+  local pdResult = APT.TranslatePatternFallback(msg)
+  if pdResult then return pdResult end
+  return type(OrigTranslateSystemText) == "function" and OrigTranslateSystemText(msg) or msg
 end
 
 -- Wrapper 3: APT.TranslateSystemTextStrict (Chat.lua:59) — strict system text
 local OrigTranslateSystemTextStrict = APT.TranslateSystemTextStrict
 
 APT.TranslateSystemTextStrict = function(msg)
-  if not msg or msg == "" then return OrigTranslateSystemTextStrict(msg) end
-  local ok, pdResult = pcall(PD.Translate, PD, msg)
-  if ok and pdResult and pdResult ~= msg then return pdResult end
-  return OrigTranslateSystemTextStrict(msg)
+  if not msg or msg == "" then
+    return type(OrigTranslateSystemTextStrict) == "function" and OrigTranslateSystemTextStrict(msg) or msg
+  end
+  local pdResult = APT.TranslatePatternFallback(msg)
+  if pdResult then return pdResult end
+  return type(OrigTranslateSystemTextStrict) == "function" and OrigTranslateSystemTextStrict(msg) or msg
 end

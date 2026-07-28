@@ -188,16 +188,33 @@ local function TranslateBodyByPrefix(tip)
         local fs = _G[name .. "TextLeft" .. i]
         local text = fs and fs:GetText()
         if text and #text > 12 then
+            -- Bônus de conjuntos chegam como "(3) Set: ...". O índice da
+            -- descrição começa no texto depois de "Set:", mas o matcher deve
+            -- receber a linha inteira para preservar a contagem do conjunto.
+            local lookup = text:gsub("^%s*%(%d+%)%s*[Ss]et:%s*", "")
+            lookup = lookup:gsub("^%s*[Ss]et:%s*", "")
             for cuantas = 8, 3, -1 do
-                local pref = PrefijoDe(text, cuantas)
+                local pref = PrefijoDe(lookup, cuantas)
                 if #pref >= 8 then
                     local c = APT.DescByPrefix and APT.DescByPrefix[pref]
                     if c and TryPairSet(fs, text, c, APT.DescPairs) then
+                        local shown = fs:GetText()
+                        if shown then
+                            local localized = shown:gsub("^(%s*%(%d+%)%s*)[Ss]et:%s*", "%1Conjunto: ")
+                            localized = localized:gsub("^(%s*)[Ss]et:%s*", "%1Conjunto: ")
+                            if localized ~= shown then pcall(fs.SetText, fs, localized) end
+                        end
                         done = true
                         break
                     end
                     c = APT.TipByPrefix and APT.TipByPrefix[pref]
                     if c and TryPairSet(fs, text, c, APT.TipPairs) then
+                        local shown = fs:GetText()
+                        if shown then
+                            local localized = shown:gsub("^(%s*%(%d+%)%s*)[Ss]et:%s*", "%1Conjunto: ")
+                            localized = localized:gsub("^(%s*)[Ss]et:%s*", "%1Conjunto: ")
+                            if localized ~= shown then pcall(fs.SetText, fs, localized) end
+                        end
                         done = true
                         break
                     end
@@ -403,6 +420,15 @@ local function TranslateTooltipLines(tip)
     local firstText = first and first:GetText()
     local firstQuestText = firstText and TranslateQuestTooltipText(firstText)
     if firstQuestText then pcall(first.SetText, first, firstQuestText) end
+    -- A primeira linha é o título e não faz parte de CollectTooltipFontStrings.
+    -- Sem este passo, os tooltips ficavam com título em inglês e só o corpo
+    -- era traduzido (ex.: Banco Pessoal, Desafios e Caminho da Ascensão).
+    if not firstQuestText and firstText and db.ui then
+        local firstUI = (APT.CustomUI and APT.CustomUI[firstText])
+            or (APT.UIStringsByEN and APT.UIStringsByEN[firstText])
+            or (APT.ServerUI and APT.ServerUI[firstText])
+        if firstUI and firstUI ~= firstText then pcall(first.SetText, first, firstUI) end
+    end
     local contexts = {}
     local contextIds = nil
     for _, fs in ipairs(CollectTooltipFontStrings(tip)) do
@@ -415,6 +441,19 @@ local function TranslateTooltipLines(tip)
                 pcall(fs.SetText, fs, questText)
                 text = questText
                 changed = true
+            end
+
+            -- Textos de interface não dependem da opção de feitiços. Isso
+            -- também cobre descrições de itens de conveniência do Ascension.
+            if not changed and db.ui then
+                local esUI = (APT.CustomUI and APT.CustomUI[text])
+                    or (APT.UIStringsByEN and APT.UIStringsByEN[text])
+                    or (APT.ServerUI and APT.ServerUI[text])
+                if esUI and esUI ~= text then
+                    pcall(fs.SetText, fs, esUI)
+                    text = esUI
+                    changed = true
+                end
             end
 
             if db.spells and text:find("\n") then
@@ -587,6 +626,10 @@ local function TranslateTooltipLines(tip)
                         end
                     end
                 end
+                new = new:gsub("%((%d+)%s+[Mm]in%s+[Cc]ooldown%)", "(%1 min de recarga)")
+                new = new:gsub("%((%d+)%s+[Ss]ec%s+[Cc]ooldown%)", "(%1 s de recarga)")
+                new = new:gsub("%((%d+)%s+[Hh]rs?%s+[Cc]ooldown%)", "(%1 h de recarga)")
+                new = new:gsub("%((%d+)%s+[Dd]ays?%s+[Cc]ooldown%)", "(%1 d de recarga)")
                 if new ~= text then
                     fs:SetText(new)
                     text = new
@@ -626,6 +669,11 @@ local function TranslateTooltipLines(tip)
             end
         end
     end
+
+    -- SetText em FontStrings já exibidas não recalcula sempre a altura do
+    -- GameTooltip. Reexibir o tooltip atualiza o layout e evita texto fora da
+    -- caixa após uma tradução mais longa.
+    if tip.IsShown and tip:IsShown() and tip.Show then pcall(tip.Show, tip) end
 end
 
 local ApplyLinePatterns = TranslateTooltipLines
@@ -634,7 +682,7 @@ local hookedFontStrings = setmetatable({}, { __mode = "k" })
 local inAPTSet = false
 local HookFSForTranslation
 
-local latePassTip, latePassElapsed
+local latePassTip, latePassElapsed, latePassShots
 local latePassDriver = CreateFrame("Frame")
 latePassDriver:SetScript("OnUpdate", function(self, dt)
     if not latePassTip then return end
@@ -656,12 +704,18 @@ latePassDriver:SetScript("OnUpdate", function(self, dt)
         end
     end
     pcall(TranslateTooltipLines, latePassTip)
+    latePassShots = (latePassShots or 0) + 1
+    if latePassShots >= 3 then
+        latePassTip = nil
+        latePassShots = nil
+    end
 end)
 
 local function ScheduleLatePass(tip)
     if not (tip and tip.IsVisible) then return end
     latePassTip = tip
     latePassElapsed = 0
+    latePassShots = 0
 end
 
 local function OnSpellTooltip(tip)
@@ -959,6 +1013,13 @@ function TranslateStaticText(t)
     local p1, p2 = t:match("^Page (%d+) of (%d+)$")
     if p1 then return "Página " .. p1 .. " de " .. p2 end
 
+    -- Character-frame line built dynamically by the client. The race stays in
+    -- its original form while the level and class are localized.
+    local characterLevel, characterRace = t:match("^Level (%d+) (.-) Necromancer$")
+    if characterLevel and characterRace and characterRace ~= "" then
+        return "Nível " .. characterLevel .. " " .. characterRace .. " Necromante"
+    end
+
     if APT.ServerUINoColor and t:find("|c", 1, true) then
         local limpio = t:gsub("|c%x%x%x%x%x%x%x%x", ""):gsub("|r", "")
         local es3 = APT.ServerUINoColor[limpio]
@@ -983,6 +1044,15 @@ function TranslateStaticText(t)
     if db and db.spells and APT.SpellNameEN2PT and #t >= 4 and t:match("^%u") then
         local esSpell = APT.SpellNameEN2PT[t]
         if esSpell and esSpell ~= t then return esSpell end
+    end
+
+    -- The optional pattern dictionary loads after Core.lua.  Use it only as a
+    -- last resort and only through its safety filter, so an incomplete pattern
+    -- cannot turn a clean English line into a mixed Portuguese/English line.
+    local patternFallback = APT.TranslatePatternFallback
+    if type(patternFallback) == "function" then
+        local patternText = patternFallback(t)
+        if patternText and patternText ~= t then return patternText end
     end
     return nil
 end
@@ -2354,7 +2424,7 @@ local function WalkUIExact(root, depth, hookFS)
     for _, r in ipairs({ root:GetRegions() }) do
         if r.IsObjectType and r:IsObjectType("FontString") then
             local t = r.GetText and r:GetText()
-            local es = t and TranslateStaticText(t)
+            local es = t and (TranslateStaticText(t) or (db and db.patterns and MatchLinePatterns(t)))
             if es then pcall(r.SetText, r, es) end
             if hookFS then pcall(HookUIFS, r) end
         end
