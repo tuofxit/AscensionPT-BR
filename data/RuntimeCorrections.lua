@@ -25,6 +25,44 @@ APT.SpellNameEN2PT["Summon Celestial Personal Bank"] = "Evocar Banco Pessoal Cel
 APT.SpellNameEN2PT["Unlock Personal Bank Tab"] = "Desbloquear aba do Banco Pessoal"
 APT.SpellNameEN2PT["Unlock Realm Bank Tab"] = "Desbloquear aba do Banco do Reino"
 
+-- Gossip.lua contains a few legacy strings with the typo "indicio". Keep
+-- the source file untouched because it has legacy non-UTF-8 bytes, and apply
+-- the corrected PT-BR text after the gossip table is loaded.
+APT.GossipEN2PT = APT.GossipEN2PT or {}
+APT.GossipEN2PT["Mr. Perelli, if you happen across any signs of Scourge activity or shady dealings in your travels, let the nearest Lordaeron soldier know."] = "Sr. Perelli, se encontrar qualquer indício de atividade do Flagelo ou negociações suspeitas durante suas viagens, avise o soldado de Lordaeron mais próximo."
+APT.GossipEN2PT["No indications of struggle are present. No guardians are present."] = "Não há indícios de luta. Não há guardiões presentes."
+
+-- The game font renders an initial accented capital I poorly in compact stat
+-- labels. Use shorter labels that keep the same meaning and avoid that glyph.
+APT.CustomUI = APT.CustomUI or {}
+APT.UIStringsByEN = APT.UIStringsByEN or {}
+local RatingLabels = {
+    { "Hit Rating", "Índice de acerto", "Taxa de acerto" },
+    { "Critical Strike Rating", "Índice de acerto crítico", "Taxa de acerto crítico" },
+    { "Haste Rating", "Índice de aceleração", "Taxa de aceleração" },
+    { "Expertise Rating", "Índice de perícia", "Taxa de perícia" },
+    { "Armor Penetration Rating", "Índice de penetração de armadura", "Penetração de armadura" },
+    { "Block Rating", "Índice de bloqueio", "Taxa de bloqueio" },
+    { "Defense Rating", "Índice de defesa", "Defesa" },
+    { "Dodge Rating", "Índice de esquivar", "Taxa de esquiva" },
+    { "Parry Rating", "Índice de aparo", "Taxa de aparo" },
+}
+for _, rating in ipairs(RatingLabels) do
+    APT.CustomUI[rating[1]] = rating[3]
+    APT.CustomUI[rating[2]] = rating[3]
+    APT.UIStringsByEN[rating[1]] = rating[3]
+    APT.UIStringsByEN[rating[2]] = rating[3]
+end
+
+APT.UIStrings = APT.UIStrings or {}
+APT.UIStrings.COMBAT_RATING_NAME2 = "Defesa"
+APT.UIStrings.COMBAT_RATING_NAME3 = "Esquiva"
+APT.UIStrings.COMBAT_RATING_NAME4 = "Aparo"
+APT.UIStrings.COMBAT_RATING_NAME5 = "Bloqueio"
+APT.UIStrings.COMBAT_RATING_NAME9 = "Taxa de acerto crítico"
+APT.UIStrings.COMBAT_RATING_NAME10 = "Taxa de acerto crítico"
+APT.UIStrings.COMBAT_RATING_NAME11 = "Taxa de acerto crítico"
+
 -- A contagem de conjunto impede a busca por prefixo; o Core trata "Set:"
 -- antes de chegar a estes pares. Aqui corrigimos as saídas PT-BR existentes.
 if APT.DescPairs[48412] then
