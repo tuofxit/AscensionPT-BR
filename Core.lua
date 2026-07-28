@@ -450,6 +450,7 @@ local function TranslateTooltipLines(tip)
                 if not changed and db.ui then
                     local esUI = (APT.CustomUI and APT.CustomUI[text])
                         or (APT.UIStringsByEN and APT.UIStringsByEN[text])
+                        or (APT.ServerUI and APT.ServerUI[text])
                     if esUI then
                         fs:SetText(esUI)
                         changed = true
@@ -617,6 +618,7 @@ local function TranslateTooltipLines(tip)
                 if db.ui then
                     local esUI = (APT.CustomUI and APT.CustomUI[text])
                         or (APT.UIStringsByEN and APT.UIStringsByEN[text])
+                        or (APT.ServerUI and APT.ServerUI[text])
                     if esUI then
                         fs:SetText(esUI)
                     end
@@ -890,6 +892,45 @@ local function ApplyUIStrings()
     return 0
 end
 
+local function NormalizeStaticKey(text)
+    if type(text) ~= "string" then return nil end
+    return text:gsub("\r", "")
+        :gsub("<br%s*/>", " ")
+        :gsub("<br%s*>", " ")
+        :gsub("<[^>]->", " ")
+        :gsub("|c%x%x%x%x%x%x%x%x", "")
+        :gsub("|r", "")
+        :gsub("|H[^|]-|h(.-)|h", "%1")
+        :gsub("\226\128\153", "'")
+        :gsub("\194\160", " ")
+        :gsub("%s+", " ")
+        :gsub("^%s+", "")
+        :gsub("%s+$", "")
+end
+
+local function RenderServerFragment(text)
+    return text:gsub("\r", "")
+        :gsub("<br%s*/>", "\n")
+        :gsub("<br%s*>", "\n")
+        :gsub("<[^>]->", "")
+        :gsub("^%s+", "")
+        :gsub("%s+$", "")
+end
+
+local function SplitServerParagraph(text)
+    local parts = {}
+    text = text:gsub("\r", "")
+        :gsub("<br%s*/>", "\n")
+        :gsub("<br%s*>", "\n")
+    for part in (text .. "\n\n"):gmatch("(.-)\n%s*\n") do
+        part = part:gsub("^%s+", ""):gsub("%s+$", "")
+        if part ~= "" then parts[#parts + 1] = part end
+    end
+    return parts
+end
+
+local SERVER_UI_FRAGMENT_TAGS = { "h1", "p" }
+
 function TranslateStaticText(t)
     local es = (APT.TalentUIExact and APT.TalentUIExact[t])
         or (APT.CustomUI and APT.CustomUI[t])
@@ -924,6 +965,21 @@ function TranslateStaticText(t)
         if es3 then return es3 end
     end
 
+    if not es then
+        local normal = NormalizeStaticKey(t)
+        local es4 = normal and ((APT.CustomUINorm and APT.CustomUINorm[normal])
+            or (APT.ServerUIFragments and APT.ServerUIFragments[normal])
+            or (APT.ServerUINorm and APT.ServerUINorm[normal]))
+        if es4 then return es4 end
+    end
+
+    if not es and t:find("You must kill ", 1, true) and t:find(" before reaching level ", 1, true) and not t:find("Você deve derrotar") then
+        local result = t:gsub("You must kill ", "Você deve derrotar ", 1)
+            :gsub(" before reaching level ", " antes de alcançar o nível ", 1)
+            :gsub("%(Click Here!%)", "(Clique aqui!)")
+        return result
+    end
+
     if db and db.spells and APT.SpellNameEN2PT and #t >= 4 and t:match("^%u") then
         local esSpell = APT.SpellNameEN2PT[t]
         if esSpell and esSpell ~= t then return esSpell end
@@ -951,6 +1007,8 @@ APT.TranslateDescriptionString = function(text)
     return nil
 end
 
+local HookUIFS
+
 local function RetranslateStaticUI()
     if not db or not db.ui then return end
     local frame = EnumerateFrames()
@@ -959,10 +1017,16 @@ local function RetranslateStaticUI()
         local protected = frame.IsProtected and select(1, frame:IsProtected())
         local forbidden = frame.IsForbidden and frame:IsForbidden()
         if not protected and not forbidden then
+            if frame.IsObjectType and frame:IsObjectType("SimpleHTML") then
+                local t = frame.GetText and frame:GetText()
+                local es = t and TranslateStaticText(t)
+                if es and es ~= t then pcall(frame.SetText, frame, es) end
+                if HookUIFS then pcall(HookUIFS, frame) end
+            end
             local ok, regions = pcall(function() return { frame:GetRegions() } end)
             if ok and regions then
                 for _, r in ipairs(regions) do
-                    if r and r.IsObjectType and r:IsObjectType("FontString") then
+                    if r and r.IsObjectType and (r:IsObjectType("FontString") or r:IsObjectType("SimpleHTML")) then
                         local t = r:GetText()
                         if t and t ~= "" then
                             local es = TranslateStaticText(t)
@@ -970,6 +1034,7 @@ local function RetranslateStaticUI()
                                 pcall(r.SetText, r, es)
                             end
                         end
+                        if HookUIFS then pcall(HookUIFS, r) end
                     end
                 end
             end
@@ -978,22 +1043,27 @@ local function RetranslateStaticUI()
     end
 end
 
-local HookUIFS
-
 local LIVE_UI_FRAMES = { "PathToAscensionFrame", "AscensionLFGFrame",
                          "AscensionPVEFrame", "AscensionPVPFrame",
                          "AscensionRulesetFrame" }
 local function TranslateLiveSubtree(fr, depth)
     if depth > 8 then return end
+    if fr.IsObjectType and fr:IsObjectType("SimpleHTML") then
+        local t = fr.GetText and fr:GetText()
+        local es = t and TranslateStaticText(t)
+        if es and es ~= t then pcall(fr.SetText, fr, es) end
+        if HookUIFS then pcall(HookUIFS, fr) end
+    end
     local ok, regions = pcall(function() return { fr:GetRegions() } end)
     if ok and regions then
         for _, r in ipairs(regions) do
-            if r.IsObjectType and r:IsObjectType("FontString") then
+            if r.IsObjectType and (r:IsObjectType("FontString") or r:IsObjectType("SimpleHTML")) then
                 local t = r.GetText and r:GetText()
                 if t and t ~= "" then
                     local es = TranslateStaticText(t)
                     if es and es ~= t then pcall(r.SetText, r, es) end
                 end
+                if HookUIFS then pcall(HookUIFS, r) end
             end
         end
     end
@@ -1016,10 +1086,16 @@ local function PrimeStaticSubtree(root, depth)
     if not root then return end
     depth = depth or 0
     if depth > 10 then return end
+    if root.IsObjectType and root:IsObjectType("SimpleHTML") then
+        local t = root.GetText and root:GetText()
+        local es = t and TranslateStaticText(t)
+        if es and es ~= t then pcall(root.SetText, root, es) end
+        if HookUIFS then pcall(HookUIFS, root) end
+    end
     local ok, regions = pcall(function() return { root:GetRegions() } end)
     if ok and regions then
         for _, r in ipairs(regions) do
-            if r and r.IsObjectType and r:IsObjectType("FontString") then
+            if r and r.IsObjectType and (r:IsObjectType("FontString") or r:IsObjectType("SimpleHTML")) then
                 local t = r.GetText and r:GetText()
                 if type(t) == "string" and t ~= "" then
                     local es = TranslateStaticText(t)
@@ -1089,6 +1165,34 @@ end
 
 -- Algumas janelas do Ascension são criadas depois do login. Atualiza somente
 -- textos visíveis, em baixa frequência, para alcançar esses painéis dinâmicos.
+-- Path to Ascension gets its page body from C_Tutorial before it creates
+-- SimpleHTML regions. Translate that source payload at the API boundary too.
+if type(C_Tutorial) == "table" then
+    APT._tutorialWrapped = APT._tutorialWrapped or {}
+    local function TranslateTutorialValue(value)
+        if type(value) ~= "string" or value == "" then return value end
+        local translated = TranslateStaticText(value)
+        return translated or value
+    end
+    for _, fname in ipairs({ "GetKeywordAtIndex", "GetKeywordInfo",
+                             "GetTutorialAtIndex", "GetTutorialByID",
+                             "GetTutorialDisplay", "GetCategoryInfo",
+                             "GetObjectiveInfo", "GetMentorSpecializationInfo" }) do
+        local original = C_Tutorial[fname]
+        if type(original) == "function" and not APT._tutorialWrapped[fname] then
+            APT._tutorialWrapped[fname] = true
+            C_Tutorial[fname] = function(...)
+                local a, b, c, d, e, f, g, h = original(...)
+                if db and not db.ui then return a, b, c, d, e, f, g, h end
+                return TranslateTutorialValue(a), TranslateTutorialValue(b),
+                    TranslateTutorialValue(c), TranslateTutorialValue(d),
+                    TranslateTutorialValue(e), TranslateTutorialValue(f),
+                    TranslateTutorialValue(g), TranslateTutorialValue(h)
+            end
+        end
+    end
+end
+
 local dynamicUIElapsed = 0
 local dynamicUIDriver = CreateFrame("Frame")
 dynamicUIDriver:SetScript("OnUpdate", function(self, elapsed)
@@ -1103,14 +1207,27 @@ dynamicUIDriver:SetScript("OnUpdate", function(self, elapsed)
             local protected = frame.IsProtected and select(1, frame:IsProtected())
             local forbidden = frame.IsForbidden and frame:IsForbidden()
             if not protected and not forbidden then
+                if frame.IsObjectType and frame:IsObjectType("SimpleHTML") then
+                    local shown = frame.GetText and frame:GetText()
+                    local translated = shown and TranslateStaticText(shown)
+                    if translated and translated ~= shown then
+                        pcall(frame.SetText, frame, translated)
+                    end
+                    if HookUIFS then pcall(HookUIFS, frame) end
+                end
                 local ok, regions = pcall(function() return { frame:GetRegions() } end)
                 if ok and regions then
                     for _, region in ipairs(regions) do
-                        if region and region.IsObjectType and region:IsObjectType("FontString") then
+                        if region and region.IsObjectType and (region:IsObjectType("FontString") or region:IsObjectType("SimpleHTML")) then
                             local shown = region:GetText()
                             local translated = shown and TranslateStaticText(shown)
                             if translated and translated ~= shown then
                                 pcall(region.SetText, region, translated)
+                            end
+                            if region:IsObjectType("SimpleHTML") and HookUIFS then
+                                pcall(HookUIFS, region)
+                            elseif HookFSForTranslation then
+                                pcall(HookFSForTranslation, region)
                             end
                         end
                     end
@@ -1950,6 +2067,15 @@ local function GossipLookup(shown)
     if not (map and shown and shown ~= "") then return nil end
     local key = shown:gsub("\r", ""):gsub("%s+$", "")
     local es = map[key]
+    -- Try with and without "G::" prefix (migrated entries use G:: prefix)
+    if es == nil then
+        local prefix = "G::"
+        if key:sub(1, #prefix) == prefix then
+            es = map[key:sub(#prefix + 1)]
+        else
+            es = map[prefix .. key]
+        end
+    end
     if es == nil then
         if not gossipIdx then
             gossipIdx = {}
@@ -2660,6 +2786,45 @@ frame:SetScript("OnEvent", function(self, event, arg1)
         db._v = 4
     end
 
+    APT.CustomUINorm = {}
+    for raw, pt in pairs(APT.CustomUI or {}) do
+        local key = NormalizeStaticKey(raw)
+        if key and key ~= "" then APT.CustomUINorm[key] = pt end
+    end
+
+    APT.ServerUINorm = {}
+    APT.ServerUIFragments = {}
+    for raw, pt in pairs(APT.ServerUI or {}) do
+        local key = NormalizeStaticKey(raw)
+        if key and key ~= "" then APT.ServerUINorm[key] = pt end
+
+        for _, tag in ipairs(SERVER_UI_FRAGMENT_TAGS) do
+            local enParts, ptParts = {}, {}
+            for part in raw:gmatch("<" .. tag .. "[^>]*>(.-)</" .. tag .. ">") do
+                enParts[#enParts + 1] = part
+            end
+            for part in pt:gmatch("<" .. tag .. "[^>]*>(.-)</" .. tag .. ">") do
+                ptParts[#ptParts + 1] = part
+            end
+            for i = 1, math.min(#enParts, #ptParts) do
+                local fragmentKey = NormalizeStaticKey(enParts[i])
+                if fragmentKey and fragmentKey ~= "" then
+                    APT.ServerUIFragments[fragmentKey] = RenderServerFragment(ptParts[i])
+                end
+                if tag == "p" then
+                    local enParagraphs = SplitServerParagraph(enParts[i])
+                    local ptParagraphs = SplitServerParagraph(ptParts[i])
+                    for j = 1, math.min(#enParagraphs, #ptParagraphs) do
+                        local paragraphKey = NormalizeStaticKey(enParagraphs[j])
+                        if paragraphKey and paragraphKey ~= "" then
+                            APT.ServerUIFragments[paragraphKey] = RenderServerFragment(ptParagraphs[j])
+                        end
+                    end
+                end
+            end
+        end
+    end
+
     HookTooltip(GameTooltip)
     HookTooltip(ItemRefTooltip)
 
@@ -2962,4 +3127,91 @@ SlashCmdList["ASCENSIONPTBR"] = function(msg)
         status(db.quests), status(db.gossip), status(db.achievements), status(db.ui)))
 end
 
-AscensionPTBR.__firma = "AES/2026-07-17/5e72a60cd2ebbd20/HideXs"
+SLASH_APTBRINSPECT1 = "/aptbrinspect"
+SlashCmdList["APTBRINSPECT"] = function()
+    local frame = _G["PathToAscensionFrame"]
+    if not frame then
+        DEFAULT_CHAT_FRAME:AddMessage("|cff33ff99AES inspect|r PathToAscensionFrame não encontrado")
+        return
+    end
+    if not frame.IsVisible or not frame:IsVisible() then
+        DEFAULT_CHAT_FRAME:AddMessage("|cff33ff99AES inspect|r PathToAscensionFrame não está visível")
+        return
+    end
+    local out = {}
+    local hasFontString = false
+    local hasSimpleHTML = false
+    local function inspectRegion(fr, depth)
+        if depth > 10 then return end
+        local indent = string.rep("  ", depth)
+        local name = fr.GetName and (fr:GetName() or "(sem nome)") or "(sem nome)"
+        local objType = fr.IsObjectType and (
+            (fr:IsObjectType("Frame") and "Frame")
+            or (fr:IsObjectType("Button") and "Button")
+            or (fr:IsObjectType("SimpleHTML") and "SimpleHTML")
+            or (fr:IsObjectType("FontString") and "FontString")
+            or (fr:IsObjectType("Texture") and "Texture")
+        ) or "?"
+        local line = indent .. name .. " (" .. objType .. ")"
+        if objType == "Texture" then
+            local path = fr.GetTexture and fr:GetTexture()
+            if path then line = line .. " textura=" .. path end
+        elseif objType == "FontString" then
+            hasFontString = true
+            local text = fr.GetText and fr:GetText()
+            if text and text ~= "" then
+                local short = text:gsub("|", "||"):gsub("[\r\n]", " "):sub(1, 120)
+                line = line .. " texto=[" .. short .. "]"
+                local es = TranslateStaticText(text)
+                if es and es ~= text then
+                    pcall(fr.SetText, fr, es)
+                    line = line .. " |cff33ff99TRADUZIDO|r"
+                end
+            end
+        elseif objType == "SimpleHTML" then
+            hasSimpleHTML = true
+            local text = fr.GetText and fr:GetText()
+            if text and text ~= "" then
+                local short = text:gsub("|", "||"):gsub("[\r\n]", " "):sub(1, 120)
+                line = line .. " html=[" .. short .. "]"
+                local es = TranslateStaticText(text)
+                if es and es ~= text then
+                    pcall(fr.SetText, fr, es)
+                    line = line .. " |cff33ff99TRADUZIDO|r"
+                end
+            end
+        end
+        if fr.GetWidth and fr.GetHeight then
+            line = line .. " dim=" .. math.floor(fr:GetWidth() + 0.5) .. "x" .. math.floor(fr:GetHeight() + 0.5)
+        end
+        local parent = fr.GetParent and fr:GetParent()
+        if parent then
+            local pn = parent.GetName and (parent:GetName() or "(sem nome)") or "(sem nome)"
+            local po = parent.IsObjectType and (
+                parent:IsObjectType("Frame") and "Frame"
+                or (parent:IsObjectType("Button") and "Button")
+            ) or "?"
+            line = line .. " parent=" .. pn .. "(" .. po .. ")"
+        end
+        out[#out + 1] = "|cff33ff99AES inspect|r " .. line
+        local ok, regions = pcall(function() return { fr:GetRegions() } end)
+        if ok and regions then
+            for _, r in ipairs(regions) do inspectRegion(r, depth + 1) end
+        end
+        local okc, children = pcall(function() return { fr:GetChildren() } end)
+        if okc and children then
+            for _, c in ipairs(children) do inspectRegion(c, depth + 1) end
+        end
+    end
+    out[#out + 1] = "|cff33ff99AES inspect|r --- PathToAscensionFrame ---"
+    inspectRegion(frame, 0)
+    if not hasFontString and not hasSimpleHTML then
+        out[#out + 1] = "|cff33ff99AES inspect|r AVISO: nenhum FontString ou SimpleHTML encontrado — o conteúdo pode ser uma Texture"
+        out[#out + 1] = "|cff33ff99AES inspect|r Se o texto estiver embutido em uma textura, não é possível traduzir via SetText."
+        out[#out + 1] = "|cff33ff99AES inspect|r Seria necessário substituir o arquivo de textura por uma versão em PT-BR."
+    end
+    out[#out + 1] = "|cff33ff99AES inspect|r --- fim ---"
+    DEFAULT_CHAT_FRAME:AddMessage(table.concat(out, "\n"))
+end
+
+AscensionPTBR.__firma = "AES/2026-07-26/5e72a60cd2ebbd20/HideXs"
