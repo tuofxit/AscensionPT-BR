@@ -1,15 +1,14 @@
 # AscensionPTBR
 
-Adaptação comunitária **não oficial** do addon **AscensionES** para **Português do Brasil (pt-BR)**, criada para jogadores brasileiros do **Project Ascension**.
+Localização independente em **Português do Brasil (pt-BR)** para o addon do **Project Ascension**. O foco é tornar a experiência no jogo clara e natural para a comunidade brasileira, com interface, tooltips, missões e mensagens revisados continuamente.
 
-> **Importante:** este projeto é gratuito, não comercial e não possui vínculo oficial com o Project Ascension
+> **Nota:** este é um projeto gratuito, não oficial e mantido pela comunidade. Não possui vínculo com o Project Ascension, a Blizzard Entertainment ou o World of Warcraft.
 
 ---
 
 ## Sobre o projeto
 
-O **AscensionPTBR** adapta para Português do Brasil os textos, nomes, descrições, missões, interface e demais conteúdos localizáveis do addon **AscensionES**.
-Este repositório contém a tradução completa do AddOn **Ascension** para o servidor brasileiro.
+O **AscensionPTBR** reúne uma tradução pt-BR em evolução para quem quer jogar Project Ascension com textos fáceis de entender dentro do cliente. Além da tradução de conteúdos localizáveis, o projeto mantém correções para linhas dinâmicas, descrições de itens e ajustes de interface do cliente 3.3.5.
 
 ### O que foi feito?
 - Integração de módulos do GabrielBosco (Voz em PT-BR, suporte avançado a prefixos, correções manuais)
