@@ -1733,20 +1733,76 @@ local function BuildOptionsPanel()
     InterfaceOptions_AddCategory(panel)
 end
 
-local QUEST_CLASS_ES = {
-    Warrior = "Guerrero", Paladin = "Paladín", Hunter = "Cazador", Rogue = "Pícaro",
-    Priest = "Sacerdote", ["Death Knight"] = "Caballero da Muerte", Shaman = "Chamán",
-    Mage = "Mago", Warlock = "Brujo", Druid = "Druida",
+-- QuestData usa estes marcadores para personalizar textos. Eles precisam ser
+-- PT-BR também; caso contrário uma missão já traduzida podia reintroduzir
+-- palavras em espanhol ao substituir <class>, <race>, $C ou $R.
+local QUEST_CLASS_PT = {
+    Warrior = "Guerreiro", Paladin = "Paladino", Hunter = "Caçador", Rogue = "Ladino",
+    Priest = "Sacerdote", ["Death Knight"] = "Cavaleiro da Morte", Shaman = "Xamã",
+    Mage = "Mago", Warlock = "Bruxo", Druid = "Druida",
 }
-local QUEST_RACE_ES = {
-    Human = "Humano", Dwarf = "Enano", ["Night Elf"] = "Elfo da noche", Gnome = "Gnomo",
-    Draenei = "Draenei", Orc = "Orco", Undead = "No-muerto", Tauren = "Tauren",
-    Troll = "Trol", ["Blood Elf"] = "Elfo de sangue",
+local QUEST_RACE_PT = {
+    Human = "Humano", Dwarf = "Anão", ["Night Elf"] = "Elfo Noturno", Gnome = "Gnomo",
+    Draenei = "Draenei", Orc = "Orc", Undead = "Morto-vivo", Tauren = "Tauren",
+    Troll = "Troll", ["Blood Elf"] = "Elfo Sangrento",
 }
 
 local function CollapseWS(t)
     t = t:gsub("%s+", " ")
     return (t:gsub("^%s+", ""):gsub("%s+$", ""))
+end
+
+-- Quest-log headers are sometimes rendered in uppercase, while the stored
+-- title keeps its original capitalization. Normalize both forms before using
+-- the title as a fallback identifier.
+local function QuestTitleKey(t)
+    if type(t) ~= "string" then return nil end
+    t = t:gsub("\r", "")
+        :gsub("|c%x%x%x%x%x%x%x%x", "")
+        :gsub("|r", "")
+    return CollapseWS(t):lower()
+end
+
+local function LookupQuestIDByTitle(title)
+    if type(title) ~= "string" or title == "" then return nil end
+    local exact = (APT.QuestTitleEN2ID and APT.QuestTitleEN2ID[title])
+        or (APT.QuestTitlePT2ID and APT.QuestTitlePT2ID[title])
+    if exact and exact ~= false then return exact end
+
+    local key = QuestTitleKey(title)
+    local candidates = key and ((APT.QuestTitleEN2IDsByKey and APT.QuestTitleEN2IDsByKey[key])
+        or (APT.QuestTitlePT2IDsByKey and APT.QuestTitlePT2IDsByKey[key]))
+    if candidates and #candidates == 1 then return candidates[1] end
+    return nil
+end
+
+local function LookupQuestTitlePT(title)
+    if type(title) ~= "string" or title == "" then return nil end
+    local exact = APT.QuestTitleEN2PT and APT.QuestTitleEN2PT[title]
+    if exact and exact ~= false then return exact end
+    local key = QuestTitleKey(title)
+    local translated = key and APT.QuestTitleEN2PTByKey and APT.QuestTitleEN2PTByKey[key]
+    if translated and translated ~= false then return translated end
+    return nil
+end
+
+-- Mantemos a API original para obter o ID mesmo depois de traduzir os títulos
+-- devolvidos por GetQuestLogTitle.
+local RawGetQuestLogTitle = type(GetQuestLogTitle) == "function" and GetQuestLogTitle or nil
+
+local function QuestLogSelectedID()
+    local titleGetter = RawGetQuestLogTitle or GetQuestLogTitle
+    if not (GetQuestLogSelection and titleGetter) then return nil end
+    local selection = GetQuestLogSelection()
+    if not selection or selection <= 0 then return nil end
+
+    local info = { titleGetter(selection) }
+    -- Different 3.x clients expose questID in position 8 or 9.
+    for _, position in ipairs({ 9, 8 }) do
+        local id = tonumber(info[position])
+        if id and id > 0 and APT.QuestData and APT.QuestData[id] then return id end
+    end
+    return LookupQuestIDByTitle(info[1])
 end
 
 local function QuestNormalizeShown(t)
@@ -1766,7 +1822,7 @@ local function QuestNormalizeShown(t)
     return CollapseWS(t)
 end
 
-local function QuestRenderES(t)
+local function QuestRenderPT(t)
     local male = not (UnitSex and UnitSex("player") == 3)
 
     t = t:gsub("%$[Gg]([^:;]*):([^;]*);", function(m, f)
@@ -1775,32 +1831,52 @@ local function QuestRenderES(t)
     end)
     local name = (UnitName and UnitName("player")) or "aventurero"
     local c = UnitClass and UnitClass("player")
-    local cES = (c and QUEST_CLASS_ES[c]) or "aventurero"
+    local cPT = (c and (QUEST_CLASS_PT[c] or c)) or "aventureiro"
     local r = UnitRace and UnitRace("player")
-    local rES = (r and QUEST_RACE_ES[r]) or ""
-    t = t:gsub("%$[Nn]", name):gsub("%$[Cc]", cES):gsub("%$[Rr]", rES)
+    local rPT = (r and (QUEST_RACE_PT[r] or r)) or ""
+    t = t:gsub("%$[Nn]", name):gsub("%$[Cc]", cPT):gsub("%$[Rr]", rPT)
 
-    t = t:gsub("<name>", name):gsub("<class>", cES):gsub("<race>", rES)
+    t = t:gsub("<name>", name):gsub("<class>", cPT):gsub("<race>", rPT)
     return t
 end
 
 local function GuardEq(shown, guardEN)
     return guardEN ~= nil
-        and QuestNormalizeShown(shown) == CollapseWS(guardEN:gsub("\r", ""))
+        and QuestNormalizeShown(shown):lower() == CollapseWS(guardEN:gsub("\r", "")):lower()
+end
+
+-- O servidor pode atualizar o texto de uma missão sem mudar sua ID. Cada
+-- variante é guardada com o inglês exato, portanto nunca trocamos um texto
+-- desconhecido por engano.
+local function QuestTranslationForShown(qd, field, shown)
+    if not (qd and shown and shown ~= "") then return nil end
+    local es, guard = qd[field], qd[field .. "EN"]
+    if es and guard and GuardEq(shown, guard) then return es end
+    for _, variant in ipairs(qd[field .. "Variants"] or {}) do
+        if variant and variant.pt and variant.en and GuardEq(shown, variant.en) then
+            return variant.pt
+        end
+    end
+    return nil
 end
 
 local function ResolveQuestIDByShown(title, shown, fields)
     if not (title and shown and shown ~= "" and APT.QuestData) then return nil end
     local cands = (APT.QuestTitleEN2IDs and APT.QuestTitleEN2IDs[title])
         or (APT.QuestTitlePT2IDs and APT.QuestTitlePT2IDs[title])
+    if not cands then
+        local key = QuestTitleKey(title)
+        cands = key and ((APT.QuestTitleEN2IDsByKey and APT.QuestTitleEN2IDsByKey[key])
+            or (APT.QuestTitlePT2IDsByKey and APT.QuestTitlePT2IDsByKey[key]))
+    end
     if not cands then return nil end
     for _, id in ipairs(cands) do
         local qd = APT.QuestData[id]
         if qd then
             for _, f in ipairs(fields) do
-                if GuardEq(shown, qd[f .. "EN"]) then return id end
+                if QuestTranslationForShown(qd, f, shown) then return id end
                 local es = qd[f]
-                if es and CollapseWS(shown) == CollapseWS(QuestRenderES(es)) then
+                if es and CollapseWS(shown) == CollapseWS(QuestRenderPT(es)) then
                     return id
                 end
             end
@@ -1810,8 +1886,11 @@ end
 
 local QUEST_PANEL_FIELDS = {
     { "QuestInfoDescriptionText", "d" },
+    { "QuestLogQuestDescription", "d" },
     { "QuestInfoObjectivesText", "o" },
+    { "QuestLogObjectivesText", "o" },
     { "QuestInfoRewardText", "c" },
+    { "QuestLogRewardText", "c" },
     { "QuestProgressText", "p" },
 }
 local function ResolveQuestIDByPanels(title)
@@ -1829,33 +1908,68 @@ local function ResolveQuestIDByPanels(title)
 end
 APT.ResolveQuestIDByPanels = ResolveQuestIDByPanels
 
-local function QuestGuardSet(fs, es, em)
+local function QuestGuardSet(fs, es, em, variants)
     if not (fs and es and em) then return end
     local shown = fs.GetText and fs:GetText()
     if not shown or shown == "" then return end
-    if not GuardEq(shown, em) then return end
-    pcall(fs.SetText, fs, QuestRenderES(es))
+    local translated
+    if GuardEq(shown, em) then
+        translated = es
+    else
+        for _, variant in ipairs(variants or {}) do
+            if variant and variant.pt and variant.en and GuardEq(shown, variant.en) then
+                translated = variant.pt
+                break
+            end
+        end
+    end
+    if translated then pcall(fs.SetText, fs, QuestRenderPT(translated)) end
+end
+
+APT.QuestRenderPT = QuestRenderPT
+
+-- Alguns clientes 3.3.5 usam os nomes QuestLog* no Registro de Missões;
+-- outros expõem as mesmas FontStrings como QuestInfo*. Aplicamos a tradução
+-- aos dois sem assumir qual variante a interface carregou.
+local QUEST_INFO_TITLE_FIELDS = { "QuestInfoTitleHeader", "QuestLogQuestTitle" }
+local QUEST_INFO_DESCRIPTION_FIELDS = { "QuestInfoDescriptionText", "QuestLogQuestDescription" }
+local QUEST_INFO_OBJECTIVE_FIELDS = { "QuestInfoObjectivesText", "QuestLogObjectivesText" }
+local QUEST_INFO_REWARD_FIELDS = { "QuestInfoRewardText", "QuestLogRewardText" }
+
+local function FirstQuestFontString(names)
+    for _, name in ipairs(names) do
+        local fs = _G[name]
+        if fs and fs.GetText then return fs end
+    end
+end
+
+local function QuestGuardSetFields(names, es, em, variants)
+    for _, name in ipairs(names) do
+        QuestGuardSet(_G[name], es, em, variants)
+    end
 end
 
 local function TranslateQuestInfo()
     if not (db and db.quests) then return end
     local id
     if QuestInfoFrame and QuestInfoFrame.questLog then
-        local sel = GetQuestLogSelection and GetQuestLogSelection()
-        if sel and sel > 0 and GetQuestLogTitle then
-            id = select(9, GetQuestLogTitle(sel))
-        end
+        id = QuestLogSelectedID()
     elseif GetQuestID then
         id = GetQuestID()
     end
     id = tonumber(id)
 
-    if (not id or id == 0) and _G["QuestInfoTitleHeader"] then
-        local t = _G["QuestInfoTitleHeader"].GetText and _G["QuestInfoTitleHeader"]:GetText()
+    local titleFS = FirstQuestFontString(QUEST_INFO_TITLE_FIELDS)
+    if titleFS then
+        local t = titleFS:GetText()
+        local es = LookupQuestTitlePT(t)
+        if es then pcall(titleFS.SetText, titleFS, es) end
+        if (not id or id == 0) then id = LookupQuestIDByTitle(t) end
+    end
+    if (not id or id == 0) and titleFS then
+        local t = titleFS:GetText()
         if t then
-            id = (APT.QuestTitleEN2ID and APT.QuestTitleEN2ID[t])
-                or (APT.QuestTitlePT2ID and APT.QuestTitlePT2ID[t]) or nil
-            if id == false then id = nil end
+            id = LookupQuestIDByTitle(t)
 
             if not id then id = ResolveQuestIDByPanels(t) end
         end
@@ -1878,7 +1992,7 @@ local function TranslateQuestInfo()
     end
     local es_t = APT.QuestTitle[id]
     if es_t then
-        QuestGuardSet(_G["QuestInfoTitleHeader"], es_t, APT.QuestTitleEN[id])
+        QuestGuardSetFields(QUEST_INFO_TITLE_FIELDS, es_t, APT.QuestTitleEN[id])
     end
 
     for _, fsName in ipairs({ "QuestInfoItemReceiveText", "QuestInfoItemChooseText",
@@ -1891,9 +2005,9 @@ local function TranslateQuestInfo()
     end
     local qd = APT.QuestData[id]
     if not qd then return end
-    QuestGuardSet(_G["QuestInfoDescriptionText"], qd.d, qd.dEN)
-    QuestGuardSet(_G["QuestInfoObjectivesText"], qd.o, qd.oEN)
-    QuestGuardSet(_G["QuestInfoRewardText"], qd.c, qd.cEN)
+    QuestGuardSetFields(QUEST_INFO_DESCRIPTION_FIELDS, qd.d, qd.dEN, qd.dVariants)
+    QuestGuardSetFields(QUEST_INFO_OBJECTIVE_FIELDS, qd.o, qd.oEN, qd.oVariants)
+    QuestGuardSetFields(QUEST_INFO_REWARD_FIELDS, qd.c, qd.cEN, qd.cVariants)
 end
 
 local function TranslateQuestItemButtons()
@@ -1931,9 +2045,9 @@ local function TranslateQuestProgress()
     if (not id or id == 0) and _G["QuestProgressTitleText"] then
         local t = _G["QuestProgressTitleText"].GetText and _G["QuestProgressTitleText"]:GetText()
         if t then
-            id = (APT.QuestTitleEN2ID and APT.QuestTitleEN2ID[t])
-                or (APT.QuestTitlePT2ID and APT.QuestTitlePT2ID[t]) or nil
-            if id == false then id = nil end
+            local es = LookupQuestTitlePT(t)
+            if es then pcall(_G["QuestProgressTitleText"].SetText, _G["QuestProgressTitleText"], es) end
+            id = LookupQuestIDByTitle(t)
 
             if not id then id = ResolveQuestIDByPanels(t) end
         end
@@ -1955,7 +2069,7 @@ local function TranslateQuestButtons(prefix, count)
         local b = _G[prefix .. i]
         if b and b.GetText then
             local t = b:GetText()
-            local es = t and APT.QuestTitleEN2PT[t]
+            local es = t and LookupQuestTitlePT(t)
             if es then pcall(b.SetText, b, es) end
         end
     end
@@ -1968,7 +2082,7 @@ local function TranslateTitlesIn(root)
         for _, r in ipairs({ fr:GetRegions() }) do
             if r.IsObjectType and r:IsObjectType("FontString") then
                 local t = r.GetText and r:GetText()
-                local es = t and APT.QuestTitleEN2PT and APT.QuestTitleEN2PT[t]
+                local es = t and LookupQuestTitlePT(t)
                 if es then pcall(r.SetText, r, es) end
             end
         end
@@ -1977,6 +2091,13 @@ local function TranslateTitlesIn(root)
         end
     end
     pcall(visit, root, 0)
+end
+
+local function TranslateQuestLog()
+    if not (db and db.quests) then return end
+    TranslateQuestButtons("QuestLogTitle", 32)
+    TranslateTitlesIn(_G["QuestLogFrame"])
+    TranslateQuestInfo()
 end
 
 local greetDelay
@@ -2043,6 +2164,7 @@ local function DelayedQuestPass()
         shots = shots + 1
         TranslateQuestInfo()
         TranslateQuestProgress()
+        pcall(TranslateQuestLog)
         pcall(ReflowQuestPanels)
         pcall(TranslateQuestItemButtons)
         if shots >= 2 then
@@ -2055,11 +2177,10 @@ local function CaptureGiverSex()
     if not (db and UnitSex) then return end
     local id
     if GetQuestID then id = tonumber(GetQuestID()) end
+    if not id or id == 0 then id = QuestLogSelectedID() end
     if (not id or id == 0) and _G["QuestInfoTitleHeader"] then
         local t = _G["QuestInfoTitleHeader"].GetText and _G["QuestInfoTitleHeader"]:GetText()
-        id = t and ((APT.QuestTitlePT2ID and APT.QuestTitlePT2ID[t])
-            or (APT.QuestTitleEN2ID and APT.QuestTitleEN2ID[t])) or nil
-        if id == false then id = nil end
+        id = LookupQuestIDByTitle(t)
         if not id then id = ResolveQuestIDByPanels(t) end
     end
     if not id or id == 0 then return end
@@ -2106,6 +2227,18 @@ questFrame:SetScript("OnEvent", function(self, event)
 end)
 if type(QuestInfo_Display) == "function" then
     hooksecurefunc("QuestInfo_Display", TranslateQuestInfo)
+end
+if type(QuestLog_Update) == "function" then
+    hooksecurefunc("QuestLog_Update", function()
+        TranslateQuestLog()
+        DelayedQuestPass()
+    end)
+end
+if QuestLogFrame and QuestLogFrame.HookScript then
+    QuestLogFrame:HookScript("OnShow", function()
+        TranslateQuestLog()
+        DelayedQuestPass()
+    end)
 end
 if type(GossipFrameUpdate) == "function" then
     hooksecurefunc("GossipFrameUpdate", function()
@@ -2156,7 +2289,7 @@ local function GossipLookup(shown)
         es = gossipIdx[key]
     end
     if es then
-        es = QuestRenderES(es)
+        es = QuestRenderPT(es)
         gossipApplied[es] = true
         return es
     end
@@ -2297,11 +2430,11 @@ local origGetTitleText = type(GetTitleText) == "function" and GetTitleText or ni
 local function CurrentQuestID()
     local id = GetQuestID and tonumber(GetQuestID())
     if id and id ~= 0 then return id end
+    id = QuestLogSelectedID()
+    if id then return id end
     local t = origGetTitleText and origGetTitleText()
-    if t and t ~= "" and APT.QuestTitleEN2ID then
-        id = APT.QuestTitleEN2ID[t]
-        if id then return id end
-    end
+    id = LookupQuestIDByTitle(t)
+    if id then return id end
     return nil
 end
 
@@ -2315,19 +2448,15 @@ local function WrapQuestGetter(name, field)
         end
         local id = CurrentQuestID()
         local qd = id and APT.QuestData and APT.QuestData[id]
-        local es = qd and qd[field]
-        local guard = qd and qd[field .. "EN"]
-        if not (es and guard and GuardEq(em, guard)) then
+        local es = QuestTranslationForShown(qd, field, em)
+        if not es then
 
             local t = origGetTitleText and origGetTitleText()
             local rid = t and ResolveQuestIDByShown(t, em, { field })
             qd = rid and APT.QuestData and APT.QuestData[rid]
-            es = qd and qd[field]
-            guard = qd and qd[field .. "EN"]
+            es = QuestTranslationForShown(qd, field, em)
         end
-        if es and guard and GuardEq(em, guard) then
-            return QuestRenderES(es)
-        end
+        if es then return QuestRenderPT(es) end
         return em
     end
 end
@@ -2336,6 +2465,69 @@ WrapQuestGetter("GetObjectiveText", "o")
 WrapQuestGetter("GetProgressText", "p")
 WrapQuestGetter("GetRewardText", "c")
 
+-- O Registro de MissÃµes clÃ¡ssico consulta estas APIs diretamente, sem passar
+-- pelos FontStrings QuestInfo*. Traduzimos a saÃ­da preservando a API original
+-- e aplicando a mesma guarda exata usada nas outras telas de missÃ£o.
+RawGetQuestLogTitle = RawGetQuestLogTitle
+    or (type(GetQuestLogTitle) == "function" and GetQuestLogTitle or nil)
+
+local function QuestDataFromLogIndex(index)
+    if not RawGetQuestLogTitle then return nil end
+    index = tonumber(index)
+    if not index and GetQuestLogSelection then index = GetQuestLogSelection() end
+    if not index or index <= 0 then return nil end
+    local row = { RawGetQuestLogTitle(index) }
+    for _, position in ipairs({ 9, 8 }) do
+        local id = tonumber(row[position])
+        if id and id > 0 and APT.QuestData and APT.QuestData[id] then
+            return APT.QuestData[id], id
+        end
+    end
+    local id = LookupQuestIDByTitle(row[1])
+    return id and APT.QuestData and APT.QuestData[id] or nil, id
+end
+
+if RawGetQuestLogTitle then
+    GetQuestLogTitle = function(...)
+        local row = { RawGetQuestLogTitle(...) }
+        if db and db.quests and type(row[1]) == "string" then
+            row[1] = LookupQuestTitlePT(row[1]) or row[1]
+        end
+        return unpack(row)
+    end
+end
+
+local rawGetQuestLogQuestText = type(GetQuestLogQuestText) == "function"
+    and GetQuestLogQuestText or nil
+if rawGetQuestLogQuestText then
+    GetQuestLogQuestText = function(...)
+        local description, objectives = rawGetQuestLogQuestText(...)
+        if not (db and db.quests) then return description, objectives end
+        local qd = QuestDataFromLogIndex(select(1, ...))
+        if qd then
+            local translated = QuestTranslationForShown(qd, "d", description)
+            if translated then description = QuestRenderPT(translated) end
+            translated = QuestTranslationForShown(qd, "o", objectives)
+            if translated then objectives = QuestRenderPT(translated) end
+        end
+        return description, objectives
+    end
+end
+
+local rawGetQuestLogLeaderBoard = type(GetQuestLogLeaderBoard) == "function"
+    and GetQuestLogLeaderBoard or nil
+if rawGetQuestLogLeaderBoard then
+    GetQuestLogLeaderBoard = function(...)
+        local text, objectiveType, isFinished = rawGetQuestLogLeaderBoard(...)
+        if db and db.quests and type(text) == "string" then
+            local translated = (APT.QuestObjectiveEN2PT and APT.QuestObjectiveEN2PT[text])
+                or (APT.QuestUIExact and APT.QuestUIExact[text])
+            if translated and translated ~= false then text = QuestRenderPT(translated) end
+        end
+        return text, objectiveType, isFinished
+    end
+end
+
 if origGetTitleText then
     GetTitleText = function(...)
         local em = origGetTitleText(...)
@@ -2343,7 +2535,7 @@ if origGetTitleText then
             return em
         end
 
-        local es = APT.QuestTitleEN2PT and APT.QuestTitleEN2PT[em]
+        local es = LookupQuestTitlePT(em)
         if es then return es end
         return em
     end
@@ -2368,7 +2560,7 @@ local function WrapTitleList(fname)
         if db and db.quests and APT.QuestTitleEN2PT then
             for i = 1, #r do
                 if type(r[i]) == "string" then
-                    local es = APT.QuestTitleEN2PT[r[i]]
+                    local es = LookupQuestTitlePT(r[i])
                     if es then r[i] = es end
                 end
             end
@@ -2385,7 +2577,7 @@ local function WrapTitleGetter(fname)
     _G[fname] = function(...)
         local t = orig(...)
         if db and db.quests and type(t) == "string" and APT.QuestTitleEN2PT then
-            local es = APT.QuestTitleEN2PT[t]
+            local es = LookupQuestTitlePT(t)
             if es then return es end
         end
         return t
@@ -2815,6 +3007,9 @@ frame:SetScript("OnEvent", function(self, event, arg1)
     APT.QuestTitlePT2ID = {}
     APT.QuestTitleEN2IDs = {}
     APT.QuestTitlePT2IDs = {}
+    APT.QuestTitleEN2PTByKey = {}
+    APT.QuestTitleEN2IDsByKey = {}
+    APT.QuestTitlePT2IDsByKey = {}
     for id, em in pairs(APT.QuestTitleEN or {}) do
         local es = APT.QuestTitle[id]
         if es then
@@ -2839,6 +3034,35 @@ frame:SetScript("OnEvent", function(self, event, arg1)
             local le = APT.QuestTitlePT2IDs[es]
             if not le then le = {}; APT.QuestTitlePT2IDs[es] = le end
             le[#le + 1] = id
+
+            -- A tela clÃ¡ssica do Registro de MissÃµes transforma alguns
+            -- cabeÃ§alhos em maiÃºsculas. As tabelas normais preservam a
+            -- capitalizaÃ§Ã£o; estas chaves permitem encontrar a mesma missÃ£o
+            -- sem aceitar tÃ­tulos ambÃ­guos.
+            local enKey = QuestTitleKey(em)
+            if enKey and enKey ~= "" then
+                local enList = APT.QuestTitleEN2IDsByKey[enKey]
+                if not enList then
+                    enList = {}
+                    APT.QuestTitleEN2IDsByKey[enKey] = enList
+                end
+                enList[#enList + 1] = id
+                if APT.QuestTitleEN2PTByKey[enKey] == nil then
+                    APT.QuestTitleEN2PTByKey[enKey] = es
+                elseif APT.QuestTitleEN2PTByKey[enKey] ~= es then
+                    APT.QuestTitleEN2PTByKey[enKey] = false
+                end
+            end
+
+            local ptKey = QuestTitleKey(es)
+            if ptKey and ptKey ~= "" then
+                local ptList = APT.QuestTitlePT2IDsByKey[ptKey]
+                if not ptList then
+                    ptList = {}
+                    APT.QuestTitlePT2IDsByKey[ptKey] = ptList
+                end
+                ptList[#ptList + 1] = id
+            end
         end
     end
     if not db._v or db._v < 2 then

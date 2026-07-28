@@ -108,3 +108,45 @@ PrioritizeDescriptionPrefix("increases healing done by", { 48429, 79472, 48412, 
 -- O painel de personagem é montado antes do hook; este padrão cobre a linha
 -- dinâmica "Level 60 Draenei Necromancer" sem alterar nomes de itens ou skills.
 table.insert(APT.LinePatterns, 1, { "^Level (%d+) (.-) Necromancer$", "Nível %1 %2 Necromante" })
+
+-- O servidor atualizou esta missão depois da base original: a descrição ganhou
+-- Ragnaros/Nefarian e uma regra de desbloqueio de raides. Preservamos a versão
+-- antiga e a atual como pares EN/PT-BR exatos; o Core só troca o texto quando
+-- uma das fontes conhecidas corresponde integralmente.
+APT.QuestData = APT.QuestData or {}
+local redeemer = APT.QuestData[1004002]
+if redeemer then
+    APT.QuestTitle = APT.QuestTitle or {}
+    APT.QuestTitleEN = APT.QuestTitleEN or {}
+    APT.QuestTitle[1004002] = "O Redentor"
+    APT.QuestTitleEN[1004002] = "The Redeemer"
+
+    redeemer.d = [[Tenho observado você há algum tempo, <name>. Agora que seu verdadeiro potencial se manifestou, finalmente chegou a hora de nos conhecermos. Derrotar um inimigo tão poderoso traz recompensas maiores do que os espólios que ele carrega.
+
+Você notou a Raider's Commendation concedida à sua aba de moedas após sua vitória?
+
+Reuni alguns dos equipamentos mais poderosos disponíveis aos heróis. Essas recompensas não são gratuitas; os espólios pertencem ao vencedor.]]
+
+    redeemer.o = [[Já era hora de nos conhecermos pessoalmente, <name>. Você notou a Raider's Commendation concedida à sua aba de moedas após sua vitória?
+
+Reuni alguns dos equipamentos mais poderosos disponíveis aos heróis. Essas recompensas não são gratuitas; os espólios pertencem ao vencedor. Colete mais Raider's Commendations e prove seu valor derrotando os adversários mais poderosos. Então abrirei minha coleção de tesouros para que você escolha sua recompensa.
+
+Derrote chefes de raide para obter Raider's Commendations.]]
+
+    redeemer.oVariants = {
+        {
+            en = [[It is about time we met in person <name>...
+Did you notice the Raider's Commendation awarded to your currency tab after your moment of triumph?
+
+I have collected some of the most powerful gear available to heroes. These rewards do not come free however. To the victor go the spoils. Collect more Raider's Commendations and prove your worth by defeating the ultimate adversaries like Ragnaros or Nefarian, and I will open my collection of treasures for you to pick from.
+
+Slay Raid Bosses to collect Raider's Commendations. Bosses in more higher tier raids reward more Raider's Commendations. You can only unlock raids behind the current tier of content, so Molten Core gear would not become available until Blackwing Lair was released.]],
+            pt = [[Já era hora de nos conhecermos pessoalmente, <name>...
+Você notou a Raider's Commendation concedida à sua aba de moedas após sua vitória?
+
+Reuni alguns dos equipamentos mais poderosos disponíveis aos heróis. Essas recompensas não são gratuitas; os espólios pertencem ao vencedor. Colete mais Raider's Commendations e prove seu valor derrotando adversários supremos, como Ragnaros ou Nefarian, e abrirei minha coleção de tesouros para que você escolha sua recompensa.
+
+Derrote chefes de raide para obter Raider's Commendations. Chefes em raides de nível mais alto concedem mais Raider's Commendations. Você só pode desbloquear raides dos níveis anteriores ao conteúdo atual; portanto, os equipamentos de Molten Core só ficam disponíveis quando Blackwing Lair é liberada.]],
+        },
+    }
+end
