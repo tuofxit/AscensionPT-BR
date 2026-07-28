@@ -670,6 +670,25 @@ local function TranslateTooltipLines(tip)
         end
     end
 
+    -- Aplica a normalização depois de todos os pares e padrões. Assim também
+    -- alcança texto de item já traduzido por DescPairs e linhas do servidor.
+    local normalizeTooltipText = APT.NormalizeTooltipText
+    if type(normalizeTooltipText) == "function" then
+        for i = 1, tip:NumLines() do
+            local left = _G[tipName .. "TextLeft" .. i]
+            local right = _G[tipName .. "TextRight" .. i]
+            local function normalizeFontString(fs)
+                local current = fs and fs.GetText and fs:GetText()
+                local normalized = current and normalizeTooltipText(current)
+                if normalized and normalized ~= current then
+                    pcall(fs.SetText, fs, normalized)
+                end
+            end
+            normalizeFontString(left)
+            normalizeFontString(right)
+        end
+    end
+
     -- SetText em FontStrings já exibidas não recalcula sempre a altura do
     -- GameTooltip. Reexibir o tooltip atualiza o layout e evita texto fora da
     -- caixa após uma tradução mais longa.
@@ -1610,6 +1629,12 @@ HookFSForTranslation = function(fs)
         if not translated and APT.TranslateSystemTextStrict and not txt:find("\n") then
             local tr = APT.TranslateSystemTextStrict(txt)
             if tr ~= txt then translated = tr end
+        end
+        local normalizeTooltipText = APT.NormalizeTooltipText
+        if type(normalizeTooltipText) == "function" then
+            local candidate = translated or txt
+            local normalized = normalizeTooltipText(candidate)
+            if normalized and normalized ~= candidate then translated = normalized end
         end
         if translated and translated ~= txt then
             inAPTSet = true

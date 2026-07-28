@@ -2,7 +2,7 @@
 ## Title: AscensionPTBR |cff33ff99Português (Brasil)|r
 ## Notes: Tradução em Português do Brasil para o Project Ascension, com suporte opcional às vozes ptBR.
 ## Author: HideXs; adaptação ptBR por GabrielBosco & Bolin
-## Version: 1.3.3
+## Version: 1.3.4
 ## X-GitHub-Repo: GabrielBosco/AscensionPTBR
 ## SavedVariables: AscensionPTBRDB
 

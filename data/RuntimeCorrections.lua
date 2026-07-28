@@ -12,6 +12,70 @@ APT.SpellNameEN2PT = APT.SpellNameEN2PT or {}
 APT.DescPairs = APT.DescPairs or {}
 APT.LinePatterns = APT.LinePatterns or {}
 
+-- A fonte compacta do cliente 3.3.5 desenha o "Í" inicial de "Índice"
+-- de forma incorreta em tooltips. Normalizamos o resultado final das linhas
+-- de item, mantendo a frase natural e sem mexer em "indício"/"indícios".
+-- As frases completas vêm antes do fallback para não produzir "o seu Taxa".
+local TooltipRatingTerms = {
+    { "Índice de acerto crítico", "chance de acerto crítico", "sua" },
+    { "índice de acerto crítico", "chance de acerto crítico", "sua" },
+    { "Índice de acerto", "chance de acerto", "sua" },
+    { "índice de acerto", "chance de acerto", "sua" },
+    { "Índice de aceleração", "celeridade", "sua" },
+    { "índice de aceleração", "celeridade", "sua" },
+    { "Índice de perícia", "perícia", "sua" },
+    { "índice de perícia", "perícia", "sua" },
+    { "Índice de penetração de armadura", "penetração de armadura", "sua" },
+    { "índice de penetração de armadura", "penetração de armadura", "sua" },
+    { "Índice de bloqueio", "bloqueio", "seu" },
+    { "índice de bloqueio", "bloqueio", "seu" },
+    { "Índice de defesa", "defesa", "sua" },
+    { "índice de defesa", "defesa", "sua" },
+    { "Índice de esquiva", "esquiva", "sua" },
+    { "índice de esquiva", "esquiva", "sua" },
+    { "Índice de aparo", "aparo", "seu" },
+    { "índice de aparo", "aparo", "seu" },
+    { "Índice de resiliência", "resiliência", "sua" },
+    { "índice de resiliência", "resiliência", "sua" },
+}
+
+local function NormalizeTooltipRatingText(text)
+    if type(text) ~= "string" or text == "" then return text end
+
+    for _, rating in ipairs(TooltipRatingTerms) do
+        local source, label, possessive = rating[1], rating[2], rating[3]
+
+        -- O gerador dinâmico de itens produz, por exemplo:
+        -- "Equipar: Aumenta em 11 o seu Índice de perícia."
+        text = text:gsub(
+            "Aumenta em ([^%.%c]+) o seu " .. source .. "%.",
+            "Aumenta " .. possessive .. " " .. label .. " em %1."
+        )
+        text = text:gsub(
+            "Aumenta em ([^%.%c]+) o seu " .. source .. "$",
+            "Aumenta " .. possessive .. " " .. label .. " em %1."
+        )
+
+        -- Algumas descrições legadas usam "Aumenta seu índice ... em X".
+        text = text:gsub(
+            "Aumenta seu " .. source .. " em ([^%.%c]+)%.",
+            "Aumenta " .. possessive .. " " .. label .. " em %1."
+        )
+        text = text:gsub(
+            "Aumenta seu " .. source .. " em ([^%.%c]+)$",
+            "Aumenta " .. possessive .. " " .. label .. " em %1."
+        )
+    end
+
+    -- Fallback para variantes raras. "Bônus de" é masculino e continua
+    -- correto depois de "o seu", ao contrário de uma troca cega por "Taxa".
+    text = text:gsub("Índice de ", "Bônus de ")
+    text = text:gsub("índice de ", "bônus de ")
+    return text
+end
+
+APT.NormalizeTooltipText = NormalizeTooltipRatingText
+
 APT.ItemName[134985] = "Banco Pessoal"
 APT.ItemNameEN[134985] = "Personal Bank"
 APT.ItemName[134986] = "Voucher de Aba do Banco Pessoal"
