@@ -165,13 +165,17 @@ local function WrapTalentStringAPI(api, names)
             wrapped[fname] = true
             local ok = pcall(function()
                 api[fname] = function(...)
-                    local values = PackTalentResults(orig(...))
-                    for i = 1, values.n do
-                        if type(values[i]) == "string" then
-                            values[i] = TranslateTalentUIText(values[i]) or values[i]
-                        end
-                    end
-                    return unpack(values, 1, values.n)
+                    if not TalentEnabled() then return orig(...) end
+                    local a, b, c, d, e, f, g, h = orig(...)
+                    if type(a) == "string" then a = TranslateTalentUIText(a) or a end
+                    if type(b) == "string" then b = TranslateTalentUIText(b) or b end
+                    if type(c) == "string" then c = TranslateTalentUIText(c) or c end
+                    if type(d) == "string" then d = TranslateTalentUIText(d) or d end
+                    if type(e) == "string" then e = TranslateTalentUIText(e) or e end
+                    if type(f) == "string" then f = TranslateTalentUIText(f) or f end
+                    if type(g) == "string" then g = TranslateTalentUIText(g) or g end
+                    if type(h) == "string" then h = TranslateTalentUIText(h) or h end
+                    return a, b, c, d, e, f, g, h
                 end
             end)
             if not ok then wrapped[fname] = nil end

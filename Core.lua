@@ -703,13 +703,13 @@ local HookFSForTranslation
 
 local latePassTip, latePassElapsed, latePassShots
 local latePassDriver = CreateFrame("Frame")
-latePassDriver:SetScript("OnUpdate", function(self, dt)
-    if not latePassTip then return end
-    if not latePassTip:IsVisible() then
+local function RunLatePass(self, dt)
+    if not latePassTip or not latePassTip:IsVisible() then
         latePassTip = nil
+        latePassDriver:SetScript("OnUpdate", nil)
         return
     end
-    latePassElapsed = latePassElapsed + (dt or 0.02)
+    latePassElapsed = (latePassElapsed or 0) + (dt or 0.02)
     if latePassElapsed < 0.05 then return end
     latePassElapsed = 0
     local nm = latePassTip:GetName()
@@ -717,9 +717,9 @@ latePassDriver:SetScript("OnUpdate", function(self, dt)
     if ok and n then
         for i = 1, n do
             local fs = _G[nm .. "TextLeft" .. i]
-            if fs then HookFSForTranslation(fs) end
+            if fs and HookFSForTranslation then HookFSForTranslation(fs) end
             local fsr = _G[nm .. "TextRight" .. i]
-            if fsr then HookFSForTranslation(fsr) end
+            if fsr and HookFSForTranslation then HookFSForTranslation(fsr) end
         end
     end
     pcall(TranslateTooltipLines, latePassTip)
@@ -727,14 +727,16 @@ latePassDriver:SetScript("OnUpdate", function(self, dt)
     if latePassShots >= 3 then
         latePassTip = nil
         latePassShots = nil
+        latePassDriver:SetScript("OnUpdate", nil)
     end
-end)
+end
 
 local function ScheduleLatePass(tip)
     if not (tip and tip.IsVisible) then return end
     latePassTip = tip
     latePassElapsed = 0
     latePassShots = 0
+    latePassDriver:SetScript("OnUpdate", RunLatePass)
 end
 
 local function OnSpellTooltip(tip)
@@ -1282,50 +1284,10 @@ if type(C_Tutorial) == "table" then
     end
 end
 
-local dynamicUIElapsed = 0
-local dynamicUIDriver = CreateFrame("Frame")
-dynamicUIDriver:SetScript("OnUpdate", function(self, elapsed)
-    dynamicUIElapsed = dynamicUIElapsed + elapsed
-    if dynamicUIElapsed < 0.4 then return end
-    dynamicUIElapsed = 0
-    if not db or not db.ui then return end
+-- dynamicUIDriver disabled: EnumerateFrames() every 0.4s caused severe freezing/FPS drops.
+-- Static and dynamic UI translation is handled by RetranslateStaticUI() and HookUIFS on SetText.
+-- local dynamicUIDriver = CreateFrame("Frame")
 
-    local frame = EnumerateFrames()
-    while frame do
-        if frame.IsVisible and frame:IsVisible() then
-            local protected = frame.IsProtected and select(1, frame:IsProtected())
-            local forbidden = frame.IsForbidden and frame:IsForbidden()
-            if not protected and not forbidden then
-                if frame.IsObjectType and frame:IsObjectType("SimpleHTML") then
-                    local shown = frame.GetText and frame:GetText()
-                    local translated = shown and TranslateStaticText(shown)
-                    if translated and translated ~= shown then
-                        pcall(frame.SetText, frame, translated)
-                    end
-                    if HookUIFS then pcall(HookUIFS, frame) end
-                end
-                local ok, regions = pcall(function() return { frame:GetRegions() } end)
-                if ok and regions then
-                    for _, region in ipairs(regions) do
-                        if region and region.IsObjectType and (region:IsObjectType("FontString") or region:IsObjectType("SimpleHTML")) then
-                            local shown = region:GetText()
-                            local translated = shown and TranslateStaticText(shown)
-                            if translated and translated ~= shown then
-                                pcall(region.SetText, region, translated)
-                            end
-                            if region:IsObjectType("SimpleHTML") and HookUIFS then
-                                pcall(HookUIFS, region)
-                            elseif HookFSForTranslation then
-                                pcall(HookFSForTranslation, region)
-                            end
-                        end
-                    end
-                end
-            end
-        end
-        frame = EnumerateFrames(frame)
-    end
-end)
 
 local function TranslateAchievementFS(fs, id, esTable, enTable)
     if not fs or not id then return end
@@ -2685,30 +2647,51 @@ end
 APT.TranslateCharacterFrame = TranslateCharacterFrame
 
 local plateElapsed = 0
+local plateRootsSeen = setmetatable({}, { __mode = "k" })
+local plateFSHooked = setmetatable({}, { __mode = "k" })
+local inPlateFSHook = false
+
+local function TranslatePlateFS(fs)
+    if inPlateFSHook or not (db and db.units and APT.UnitNameEN2PT) then return end
+    local text = fs and fs.GetText and fs:GetText()
+    local translated = text and APT.UnitNameEN2PT[text]
+    if translated and translated ~= text then
+        inPlateFSHook = true
+        pcall(fs.SetText, fs, translated)
+        inPlateFSHook = false
+    end
+end
+
+local function HookPlateFS(fs)
+    if not (fs and fs.SetText) or plateFSHooked[fs] then return end
+    plateFSHooked[fs] = true
+    pcall(hooksecurefunc, fs, "SetText", TranslatePlateFS)
+    TranslatePlateFS(fs)
+end
+
+local function ScanPlateRoot(fr, depth)
+    if not (fr and fr.GetRegions and fr.GetChildren) or depth > 2 then return end
+    for _, region in ipairs({ fr:GetRegions() }) do
+        if region and region.IsObjectType and region:IsObjectType("FontString") then
+            HookPlateFS(region)
+        end
+    end
+    for _, child in ipairs({ fr:GetChildren() }) do
+        ScanPlateRoot(child, depth + 1)
+    end
+end
+
 local plateScanner = CreateFrame("Frame")
-plateScanner:SetScript("OnUpdate", function(self, dt)
-    plateElapsed = plateElapsed + dt
-    if plateElapsed < 0.5 then return end
+plateScanner:SetScript("OnUpdate", function(_, dt)
+    plateElapsed = plateElapsed + (dt or 0)
+    if plateElapsed < 0.75 then return end
     plateElapsed = 0
     if not (db and db.units and APT.UnitNameEN2PT and WorldFrame) then return end
-    local kids = { WorldFrame:GetChildren() }
-    for _, child in ipairs(kids) do
-        if child.IsVisible and child:IsVisible() then
-            local function scanFS(fr, depth)
-                for _, r in ipairs({ fr:GetRegions() }) do
-                    if r.IsObjectType and r:IsObjectType("FontString") then
-                        local t = r.GetText and r:GetText()
-                        local es = t and APT.UnitNameEN2PT[t]
-                        if es then pcall(r.SetText, r, es) end
-                    end
-                end
-                if depth < 2 then
-                    for _, c in ipairs({ fr:GetChildren() }) do
-                        scanFS(c, depth + 1)
-                    end
-                end
-            end
-            pcall(scanFS, child, 0)
+
+    for _, child in ipairs({ WorldFrame:GetChildren() }) do
+        if not plateRootsSeen[child] then
+            plateRootsSeen[child] = true
+            pcall(ScanPlateRoot, child, 0)
         end
     end
 end)
@@ -3218,15 +3201,9 @@ frame:SetScript("OnEvent", function(self, event, arg1)
         end
     end
 
-    local shopDriver = CreateFrame("Frame")
-    shopDriver:SetScript("OnUpdate", function(self, elapsed)
-        if not db then return end
-        for _, tip in ipairs(shopTips) do
-            if tip and tip:IsVisible() then
-                TranslateShopTip(tip)
-            end
-        end
-    end)
+-- shopDriver OnUpdate disabled: running TranslateShopTip on every single frame (60-144+ FPS) caused severe FPS drops.
+-- Shop tips are already hooked via SetCompareItem, SetHyperlinkCompareItem, OnTooltipSetItem, OnShow, etc.
+
 
     HookAuras()
     HookSpellbook()

@@ -34,6 +34,14 @@ PatternDictionary = {
 --- Define a referência ao GlossarioPTBR para consulta de termos.
 function PatternDictionary:SetGlossary(g)
   self.glossary = g
+  self.lowerGlossary = {}
+  if type(g) == "table" then
+    for k, v in pairs(g) do
+      if type(k) == "string" then
+        self.lowerGlossary[k:lower()] = v
+      end
+    end
+  end
 end
 
 --- Consulta um termo no glossário.
@@ -49,10 +57,11 @@ function PatternDictionary:GlossaryTranslate(term)
   if self.glossary[trimmed] then
     return self.glossary[trimmed]
   end
-  -- Segunda tentativa: ignorando plurais e capitalização
-  for k, v in pairs(self.glossary) do
-    if k:lower() == trimmed:lower() then
-      return v
+  -- Segunda tentativa: O(1) lookup ignorando capitalização
+  if self.lowerGlossary then
+    local low = trimmed:lower()
+    if self.lowerGlossary[low] then
+      return self.lowerGlossary[low]
     end
   end
   return trimmed
