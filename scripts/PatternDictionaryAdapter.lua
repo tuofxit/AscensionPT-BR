@@ -47,9 +47,12 @@ APT.TranslateSystemText = function(msg)
   if not msg or msg == "" then
     return type(OrigTranslateSystemText) == "function" and OrigTranslateSystemText(msg) or msg
   end
+  local originalResult = type(OrigTranslateSystemText) == "function"
+      and OrigTranslateSystemText(msg) or msg
+  if originalResult ~= msg then return originalResult end
   local pdResult = APT.TranslatePatternFallback(msg)
   if pdResult then return pdResult end
-  return type(OrigTranslateSystemText) == "function" and OrigTranslateSystemText(msg) or msg
+  return originalResult
 end
 
 -- Wrapper 3: APT.TranslateSystemTextStrict (Chat.lua:59) — strict system text
@@ -59,7 +62,10 @@ APT.TranslateSystemTextStrict = function(msg)
   if not msg or msg == "" then
     return type(OrigTranslateSystemTextStrict) == "function" and OrigTranslateSystemTextStrict(msg) or msg
   end
+  local originalResult = type(OrigTranslateSystemTextStrict) == "function"
+      and OrigTranslateSystemTextStrict(msg) or msg
+  if originalResult ~= msg then return originalResult end
   local pdResult = APT.TranslatePatternFallback(msg)
   if pdResult then return pdResult end
-  return type(OrigTranslateSystemTextStrict) == "function" and OrigTranslateSystemTextStrict(msg) or msg
+  return originalResult
 end

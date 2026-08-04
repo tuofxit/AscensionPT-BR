@@ -1,9 +1,9 @@
 ## Interface: 30300
 ## Title: AscensionPTBR |cff33ff99Português (Brasil)|r
-## Notes: Tradução em Português do Brasil para o Project Ascension, com suporte opcional às vozes ptBR.
-## Author: HideXs; adaptação ptBR por GabrielBosco & Bolin
-## Version: 1.3.4
-## X-GitHub-Repo: GabrielBosco/AscensionPTBR
+## Notes: Tradução PT-BR para o Project Ascension: missões, habilidades, itens e interfaces. Inspirado nos trabalhos de GabrielBosco e HideXs.
+## Author: Tuofxit
+## Version: 1.3.13
+## X-GitHub-Repo: tuofxit/AscensionPT-BR
 ## SavedVariables: AscensionPTBRDB
 
 data\Globals.lua

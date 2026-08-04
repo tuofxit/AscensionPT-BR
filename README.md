@@ -1,73 +1,102 @@
-# Ascension PT-BR
+<div align="center">
 
-> Uma localização comunitária para tornar o Project Ascension mais confortável de jogar em português brasileiro.
+# AscensionPTBR
 
-O `AscensionPTBR` é mantido a partir de testes reais no cliente 3.3.5a. A prioridade não é traduzir por traduzir: é deixar as informações que ajudam a jogar — telas, objetivos, tooltips, mensagens e descrições — claras, naturais e estáveis.
+### Project Ascension em Português do Brasil
 
-- **Compatibilidade:** Project Ascension / cliente 3.3.5a
-- **Manutenção:** Tuofxit (Bolin) e relatos da comunidade
+![Versão](https://img.shields.io/badge/versão-1.3.13-33ff99)
+![Idioma](https://img.shields.io/badge/idioma-PT--BR-009c3b)
+![Cliente](https://img.shields.io/badge/cliente-3.3.5a-d4af37)
+![Projeto](https://img.shields.io/badge/projeto-comunitário-blue)
 
-## Jogue em PT-BR
+Uma localização feita para que jogadores brasileiros entendam o conteúdo do jogo com clareza, sem perder compatibilidade com o Project Ascension.
 
-Esta versão trabalha principalmente com:
+</div>
 
-- janelas, menus e mensagens de sistema;
-- objetivos e descrições de missões;
-- explicações de habilidades, efeitos e itens;
-- tooltips gerados durante o jogo;
-- correções de inglês, espanhol, concordância e texto que ultrapassa a interface.
+## Sobre o projeto
 
-Nomes próprios, habilidades, itens e NPCs podem continuar em inglês de propósito. Isso ajuda a manter compatibilidade com links do jogo, buscas, guias e identificadores internos do servidor.
+O **AscensionPTBR** é um addon comunitário mantido por **Tuofxit**. Ele traduz para português brasileiro os textos que ajudam o jogador a entender sistemas, objetivos e efeitos durante a partida.
 
-## Instalar no seu cliente
+A proposta é oferecer uma tradução natural, legível e estável. O addon atua quando o conteúdo é exibido, reduzindo processamento desnecessário, e preserva identificadores internos importantes para não quebrar a interface.
 
-1. Baixe [AscensionPTBR.zip](AscensionPTBR.zip) e extraia a pasta `AscensionPTBR`.
-2. Coloque essa pasta em:
+### O que é traduzido
+
+- descrições e objetivos de missões;
+- efeitos e descrições de habilidades;
+- descrições, atributos e efeitos de itens;
+- menus, botões, tooltips e janelas personalizadas;
+- mensagens de sistema e instruções do servidor;
+- trechos restantes em inglês ou espanhol;
+- textos grandes, com ajustes para caber melhor nas caixas da interface.
+
+Nomes próprios, nomes de NPCs e alguns nomes de habilidades ou itens podem permanecer em inglês de propósito. Isso facilita buscas, links, comandos e consultas em guias sem comprometer a compreensão das descrições.
+
+## Instalação
+
+1. Baixe o arquivo [`AscensionPTBR.zip`](AscensionPTBR.zip).
+2. Extraia a pasta `AscensionPTBR`.
+3. Copie a pasta para:
 
    ```text
    C:\Ascension\Launcher\resources\ascension-live\Interface\AddOns\
    ```
 
-3. Confira se este arquivo existe no destino:
+4. A estrutura final deve ficar assim:
 
    ```text
-   AscensionPTBR\AscensionPTBR.toc
+   Interface\AddOns\AscensionPTBR\AscensionPTBR.toc
    ```
 
-4. Abra o jogo, habilite o addon na seleção de personagem e permita addons desatualizados se o cliente solicitar.
-5. Se atualizou os arquivos com o jogo aberto, use `/reload`.
+5. Abra o jogo, habilite o addon na lista de AddOns e permita addons desatualizados caso o cliente solicite.
+6. Se o jogo já estiver aberto, use `/reload` depois de atualizar os arquivos.
 
-## Quando algo ainda aparece errado
+## Caso o addon não apareça na lista de AddOns dentro do jogo
 
-O servidor adiciona e monta parte dos textos em tempo real. Depois de uma atualização, pode surgir uma descrição sem tradução, uma frase sem contexto ou uma linha grande demais para a caixa. Esses casos são tratados como correções contínuas, não como uma promessa artificial de “100% pronto”.
+Verifique se a pasta do addon está com o nome exato **`AscensionPTBR`**, sem hífen e sem pastas duplicadas. Em alguns casos, o nome ou a estrutura da pasta impede que o jogo reconheça o addon corretamente.
 
-Se o problema for uma descrição, objetivo, instrução ou mensagem de sistema, vale reportar. Um nome próprio em inglês, por si só, normalmente não é erro.
+Correto:
 
-## Envie um bom reporte
+```text
+Interface\AddOns\AscensionPTBR\AscensionPTBR.toc
+```
 
-Abra uma [issue](https://github.com/tuofxit/AscensionPT-BR/issues/new) com, se possível:
+Incorreto:
+
+```text
+Interface\AddOns\AscensionPT-BR\AscensionPTBR.toc
+Interface\AddOns\AscensionPTBR\AscensionPTBR\AscensionPTBR.toc
+```
+
+Se a estrutura estiver correta e o addon ainda não aparecer, feche completamente o jogo, abra novamente e confira se a opção para carregar addons desatualizados está habilitada.
+
+## Encontrou um texto sem tradução?
+
+O Project Ascension cria parte de seus textos dinamicamente. Por isso, uma atualização do servidor pode adicionar novas frases ou alterar conteúdos existentes.
+
+Abra uma [issue](https://github.com/tuofxit/AscensionPT-BR/issues/new) e envie, se possível:
 
 1. uma captura de tela legível;
 2. o texto exatamente como apareceu;
-3. o local no jogo (missão, item, habilidade, NPC ou janela);
-4. a versão do addon instalada;
-5. uma sugestão de frase, se tiver.
+3. onde ele apareceu — missão, item, habilidade, NPC ou janela;
+4. a versão instalada do addon.
 
-Um print do tooltip aberto costuma ser suficiente para encontrar a origem de uma linha dinâmica. Não é necessário saber Lua para ajudar.
+Relatos de erros gramaticais, textos em espanhol, descrições em inglês e frases que ultrapassam a interface também são bem-vindos.
 
-## Como a tradução é preservada
+## Segurança das traduções
 
-Antes de alterar um texto, a revisão considera contexto, espaço disponível e funcionamento do addon. IDs, chaves de referência, variáveis, placeholders como `%s`, `%d`, `{{1}}` e `$N`, além dos códigos de cor, são preservados para não quebrar a interface.
+As revisões preservam IDs, chaves internas, códigos de cor e marcadores como `%s`, `%d`, `{{1}}` e `$N`. Esses elementos fazem parte do funcionamento do jogo e não devem ser removidos durante uma tradução.
 
-Correções e pull requests são bem-vindos, desde que respeitem essas estruturas e possam ser testados dentro do jogo.
+O projeto é testado no cliente 3.3.5a do Project Ascension. Correções e pull requests são bem-vindos quando mantêm essas estruturas e podem ser verificados dentro do jogo.
 
-## Origem e créditos
+## Créditos e agradecimentos
 
-Esta manutenção brasileira parte do trabalho do [AscensionES](https://github.com/HideXs/AscensionES), criado por **HideXs**. Os créditos, avisos de autoria e condições do projeto de origem continuam preservados aqui.
+- **Tuofxit** — autoria e manutenção desta versão brasileira.
+- **HideXs** — criador do [AscensionES](https://github.com/HideXs/AscensionES), trabalho que serviu de base e inspiração para este projeto.
+- **GabrielBosco** — autor do [AscensionPTBR](https://github.com/GabrielBosco/AscensionPTBR), usado como referência e inspiração para melhorias na localização brasileira.
+- **Guilda A Cruzada Escarlate** — agradecimento especial pelo apoio ao projeto, pelos testes e pela ajuda na evolução do addon.
+- **Comunidade brasileira do Project Ascension** — pelos relatos, capturas de tela e sugestões de correção.
 
-O projeto também reconhece contribuições e componentes originalmente publicados por [GabrielBosco/AscensionPTBR](https://github.com/GabrielBosco/AscensionPTBR), quando presentes nesta versão. Este repositório mantém revisões, integrações e correções próprias para a versão mantida por Tuofxit.
-
-Consulte também [CREDITS.md](CREDITS.md), [PERMISSION.md](PERMISSION.md) e [LICENSE-NOTICE.md](LICENSE-NOTICE.md).
+Mais informações estão disponíveis em [CREDITS.md](CREDITS.md), [PERMISSION.md](PERMISSION.md) e [LICENSE-NOTICE.md](LICENSE-NOTICE.md).
 
 ---
 

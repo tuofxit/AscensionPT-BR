@@ -20,12 +20,20 @@
 --]]
 
 PatternDictionary = {
-  Version = "2.0.0",
+  Version = "2.1.0",
   DEBUG = false,
   rules = {},
   glossary = nil,
   compiled = false,
+  cache = {},
+  cacheSize = 0,
+  maxCacheSize = 4096,
 }
+
+function PatternDictionary:ClearCache()
+  self.cache = {}
+  self.cacheSize = 0
+end
 
 -- ============================================================================
 -- GLOSSÁRIO
@@ -35,6 +43,7 @@ PatternDictionary = {
 function PatternDictionary:SetGlossary(g)
   self.glossary = g
   self.lowerGlossary = {}
+  self:ClearCache()
   if type(g) == "table" then
     for k, v in pairs(g) do
       if type(k) == "string" then
@@ -82,6 +91,7 @@ end
 function PatternDictionary:AddRule(rule)
   table.insert(self.rules, rule)
   self.compiled = false
+  self:ClearCache()
 end
 
 --- Ordena as regras por prioridade (decrescente).
@@ -90,7 +100,37 @@ function PatternDictionary:Compile()
   table.sort(self.rules, function(a, b)
     return a.priority > b.priority
   end)
+
+  -- Quase todas as regras deste arquivo são ancoradas no início da linha.
+  -- Separá-las pelo primeiro termo evita testar dezenas de gsub para cada
+  -- FontString atualizado pela interface do jogo.
+  self.rulesByKey = {}
+  self.genericRules = {}
+  for _, rule in ipairs(self.rules) do
+    local pattern = rule.pattern or ""
+    local key
+    local word = pattern:match("^%^([%a]+)")
+    if word then
+      key = "W:" .. word
+    elseif pattern:sub(1, 3) == "^%+" then
+      key = "C:+"
+    elseif pattern:sub(1, 3) == "^%(" then
+      key = "C:("
+    end
+
+    if key then
+      local bucket = self.rulesByKey[key]
+      if not bucket then
+        bucket = {}
+        self.rulesByKey[key] = bucket
+      end
+      bucket[#bucket + 1] = rule
+    else
+      self.genericRules[#self.genericRules + 1] = rule
+    end
+  end
   self.compiled = true
+  self:ClearCache()
 end
 
 -- ============================================================================
@@ -109,30 +149,40 @@ function PatternDictionary:Translate(text)
     self:Compile()
   end
 
-  local result = text
+  local cached = self.cache[text]
+  if cached ~= nil then return cached end
 
-  for _, rule in ipairs(self.rules) do
-    local matched, count
-    local ok, err = pcall(function()
-      matched, count = result:gsub(rule.pattern, function(...)
-        return rule.handler(self, ...)
+  local function tryRules(rules)
+    for _, rule in ipairs(rules or {}) do
+      local matched, count
+      local ok, err = pcall(function()
+        matched, count = text:gsub(rule.pattern, function(...)
+          return rule.handler(self, ...)
+        end)
       end)
-    end)
-    if ok and count and count > 0 then
-      if self.DEBUG then
-        print(string.format("[PatternDictionary] Regra: %s | Categoria: %s", rule.name, rule.category))
-        print(string.format("  Original : %s", text))
-        print(string.format("  Antes    : %s", result))
-        print(string.format("  Depois   : %s", matched))
-      end
-      result = matched
-    elseif not ok then
-      if self.DEBUG then
+      if ok and count and count > 0 then
+        if self.DEBUG then
+          print(string.format("[PatternDictionary] Regra: %s | Categoria: %s", rule.name, rule.category))
+          print(string.format("  Original : %s", text))
+          print(string.format("  Depois   : %s", matched))
+        end
+        return matched
+      elseif not ok and self.DEBUG then
         print(string.format("[PatternDictionary] ERRO na regra %s: %s", rule.name, tostring(err)))
       end
     end
+    return nil
   end
 
+  local firstWord = text:match("^([%a]+)")
+  local key = firstWord and ("W:" .. firstWord) or ("C:" .. text:sub(1, 1))
+  local result = tryRules(self.rulesByKey and self.rulesByKey[key])
+      or tryRules(self.genericRules)
+      or text
+
+  if self.cacheSize >= self.maxCacheSize then self:ClearCache() end
+  self.cache[text] = result
+  self.cacheSize = self.cacheSize + 1
   return result
 end
 

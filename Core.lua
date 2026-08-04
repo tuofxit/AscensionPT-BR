@@ -347,37 +347,16 @@ local function HookEmbedFS(fs)
 end
 
 local function CollectTooltipFontStrings(tip)
-    local tipName = tip:GetName()
-    local list, seen = {}, {}
-    for i = 2, tip:NumLines() do
-        local fs = _G[tipName .. "TextLeft" .. i]
-        if fs then
-            list[#list + 1] = fs
-            seen[fs] = true
-        end
-    end
-    local function addRegions(frame)
-        if not frame or not frame.GetRegions then return end
-        local ok, regions = pcall(function() return { frame:GetRegions() } end)
-        if not ok then return end
-        for _, r in ipairs(regions) do
-            if r and not seen[r] and r.IsObjectType and r:IsObjectType("FontString") then
-                local nm = r.GetName and r:GetName()
-                if nm ~= tipName .. "TextLeft1" then
-                    list[#list + 1] = r
-                    seen[r] = true
-                end
-            end
-        end
-    end
-    addRegions(tip)
-    if tip.GetChildren then
-        local ok, children = pcall(function() return { tip:GetChildren() } end)
-        if ok then
-            for _, child in ipairs(children) do
-                addRegions(child)
-            end
-        end
+    local tipName = tip and tip:GetName()
+    if not tipName or not tip then return {} end
+
+    local list = {}
+    local lineCount = tip:NumLines() or 0
+    for i = 1, lineCount do
+        local left = _G[tipName .. "TextLeft" .. i]
+        local right = _G[tipName .. "TextRight" .. i]
+        if left and left:GetText() then list[#list + 1] = left end
+        if right and right:GetText() then list[#list + 1] = right end
     end
     return list
 end
@@ -413,8 +392,12 @@ local function TranslateQuestTooltipText(text)
     return nil
 end
 
+local inTooltipTranslate = false
+
 local function TranslateTooltipLines(tip)
-    if not db then return end
+    if inTooltipTranslate or not db or not tip then return end
+    inTooltipTranslate = true
+    local ok, err = pcall(function()
     local tipName = tip:GetName()
     local first = _G[tipName .. "TextLeft1"]
     local firstText = first and first:GetText()
@@ -689,10 +672,9 @@ local function TranslateTooltipLines(tip)
         end
     end
 
-    -- SetText em FontStrings já exibidas não recalcula sempre a altura do
-    -- GameTooltip. Reexibir o tooltip atualiza o layout e evita texto fora da
-    -- caixa após uma tradução mais longa.
-    if tip.IsShown and tip:IsShown() and tip.Show then pcall(tip.Show, tip) end
+    end)
+    inTooltipTranslate = false
+    if not ok then return end
 end
 
 local ApplyLinePatterns = TranslateTooltipLines
@@ -701,7 +683,7 @@ local hookedFontStrings = setmetatable({}, { __mode = "k" })
 local inAPTSet = false
 local HookFSForTranslation
 
-local latePassTip, latePassElapsed, latePassShots
+local latePassTip, latePassElapsed
 local latePassDriver = CreateFrame("Frame")
 local function RunLatePass(self, dt)
     if not latePassTip or not latePassTip:IsVisible() then
@@ -723,19 +705,14 @@ local function RunLatePass(self, dt)
         end
     end
     pcall(TranslateTooltipLines, latePassTip)
-    latePassShots = (latePassShots or 0) + 1
-    if latePassShots >= 3 then
-        latePassTip = nil
-        latePassShots = nil
-        latePassDriver:SetScript("OnUpdate", nil)
-    end
+    latePassTip = nil
+    latePassDriver:SetScript("OnUpdate", nil)
 end
 
 local function ScheduleLatePass(tip)
     if not (tip and tip.IsVisible) then return end
     latePassTip = tip
     latePassElapsed = 0
-    latePassShots = 0
     latePassDriver:SetScript("OnUpdate", RunLatePass)
 end
 
@@ -1006,7 +983,12 @@ end
 
 local SERVER_UI_FRAGMENT_TAGS = { "h1", "p" }
 
-function TranslateStaticText(t)
+local STATIC_TEXT_CACHE_MISS = {}
+local staticTextCache = {}
+local staticTextCacheSize = 0
+local STATIC_TEXT_CACHE_LIMIT = 4096
+
+local function TranslateStaticTextUncached(t)
     local es = (APT.TalentUIExact and APT.TalentUIExact[t])
         or (APT.CustomUI and APT.CustomUI[t])
         or (APT.ServerUI and APT.ServerUI[t])
@@ -1034,6 +1016,13 @@ function TranslateStaticText(t)
     local p1, p2 = t:match("^Page (%d+) of (%d+)$")
     if p1 then return "Página " .. p1 .. " de " .. p2 end
 
+    local trialLevelPlain = NormalizeStaticKey(t)
+    local currentTrialLevel = trialLevelPlain and trialLevelPlain:match("^Current Level:%s*(%d+)$")
+    if currentTrialLevel then
+        -- Preserva a cor aplicada ao número pelo cliente.
+        return (t:gsub("Current Level:", "Nível atual:", 1))
+    end
+
     -- Character-frame line built dynamically by the client. The race stays in
     -- its original form while the level and class are localized.
     local characterLevel, characterRace = t:match("^Level (%d+) (.-) Necromancer$")
@@ -1055,9 +1044,23 @@ function TranslateStaticText(t)
         if es4 then return es4 end
     end
 
+    -- O servidor atualizou o texto introdutório do desafio Boss Blitz sem
+    -- alterar as linhas dinâmicas dos chefes. Traduzimos o prefixo e mantemos
+    -- nomes próprios e hyperlinks exatamente como o cliente os enviou.
+    local trialIntroEN = "Seek out allies and delve into the deepest dungeons! Complete all Vanilla dungeons in order to overcome this savage Trial. The catch? You only have one life. Fall, and that member is out of the party. Will you overcome the darkest reaches of Azeroth and emerge victorious from the depths?"
+    local trialIntroStart, trialIntroEnd = t:find(trialIntroEN, 1, true)
+    if trialIntroStart then
+        local trialIntroPT = "Reúna aliados e aventure-se nas masmorras mais profundas! Conclua todas as masmorras Vanilla para superar este Desafio implacável. O porém? Você só tem uma vida. Se cair, esse integrante ficará fora do grupo. Você conseguirá superar os confins mais sombrios de Azeroth e emergir vitorioso das profundezas?"
+        local result = t:sub(1, trialIntroStart - 1) .. trialIntroPT .. t:sub(trialIntroEnd + 1)
+        result = result:gsub("You must kill ", "Você deve derrotar ")
+            :gsub(" before reaching level ", " antes de alcançar o nível ")
+            :gsub("%(Click Here!%)", "(Clique aqui!)")
+        return result
+    end
+
     if not es and t:find("You must kill ", 1, true) and t:find(" before reaching level ", 1, true) and not t:find("Você deve derrotar") then
-        local result = t:gsub("You must kill ", "Você deve derrotar ", 1)
-            :gsub(" before reaching level ", " antes de alcançar o nível ", 1)
+        local result = t:gsub("You must kill ", "Você deve derrotar ")
+            :gsub(" before reaching level ", " antes de alcançar o nível ")
             :gsub("%(Click Here!%)", "(Clique aqui!)")
         return result
     end
@@ -1067,15 +1070,33 @@ function TranslateStaticText(t)
         if esSpell and esSpell ~= t then return esSpell end
     end
 
-    -- The optional pattern dictionary loads after Core.lua.  Use it only as a
-    -- last resort and only through its safety filter, so an incomplete pattern
-    -- cannot turn a clean English line into a mixed Portuguese/English line.
-    local patternFallback = APT.TranslatePatternFallback
-    if type(patternFallback) == "function" then
-        local patternText = patternFallback(t)
-        if patternText and patternText ~= t then return patternText end
-    end
     return nil
+end
+
+function TranslateStaticText(t)
+    if type(t) ~= "string" or t == "" then return nil end
+    local cached = staticTextCache[t]
+    if cached ~= nil then
+        -- Em Lua, `condicao and nil or valor` sempre termina em `valor`.
+        -- Portanto o sentinela precisa ser tratado explicitamente; caso
+        -- contrário ele chega a FontString:SetText e apaga o texto exibido.
+        if cached == STATIC_TEXT_CACHE_MISS then return nil end
+        return cached
+    end
+
+    local translated = TranslateStaticTextUncached(t)
+    if staticTextCacheSize >= STATIC_TEXT_CACHE_LIMIT then
+        staticTextCache = {}
+        staticTextCacheSize = 0
+    end
+    staticTextCache[t] = translated or STATIC_TEXT_CACHE_MISS
+    staticTextCacheSize = staticTextCacheSize + 1
+    return translated
+end
+
+APT.ClearStaticTextCache = function()
+    staticTextCache = {}
+    staticTextCacheSize = 0
 end
 
 APT.TranslateStaticText = TranslateStaticText
@@ -1095,37 +1116,51 @@ APT.TranslateDescriptionString = function(text)
         translated = indexes and MatchPairSet(text, indexes, APT.TipPairs)
         if translated and translated ~= text then return translated end
     end
+    local patternFallback = APT.TranslatePatternFallback
+    if type(patternFallback) == "function" then
+        local translated = patternFallback(text)
+        if translated and translated ~= text then return translated end
+    end
     return nil
 end
 
 local HookUIFS
 
+local staticUIThrottle = 0
 local function RetranslateStaticUI()
     if not db or not db.ui then return end
+    local now = GetTime()
+    if now < staticUIThrottle then return end
+    staticUIThrottle = now + 0.25
+
     local frame = EnumerateFrames()
     while frame do
-
-        local protected = frame.IsProtected and select(1, frame:IsProtected())
-        local forbidden = frame.IsForbidden and frame:IsForbidden()
-        if not protected and not forbidden then
-            if frame.IsObjectType and frame:IsObjectType("SimpleHTML") then
-                local t = frame.GetText and frame:GetText()
-                local es = t and TranslateStaticText(t)
-                if es and es ~= t then pcall(frame.SetText, frame, es) end
-                if HookUIFS then pcall(HookUIFS, frame) end
-            end
-            local ok, regions = pcall(function() return { frame:GetRegions() } end)
-            if ok and regions then
-                for _, r in ipairs(regions) do
-                    if r and r.IsObjectType and (r:IsObjectType("FontString") or r:IsObjectType("SimpleHTML")) then
-                        local t = r:GetText()
-                        if t and t ~= "" then
-                            local es = TranslateStaticText(t)
-                            if es then
-                                pcall(r.SetText, r, es)
+        local shown = frame.IsShown and frame:IsShown()
+        if shown then
+            local protected = frame.IsProtected and select(1, frame:IsProtected())
+            local forbidden = frame.IsForbidden and frame:IsForbidden()
+            if not protected and not forbidden then
+                if frame.IsObjectType and (frame:IsObjectType("SimpleHTML") or frame:IsObjectType("Button")
+                    or frame:IsObjectType("EditBox"))
+                    and frame.GetText and frame.SetText then
+                    local t = frame.GetText and frame:GetText()
+                    local es = t and TranslateStaticText(t)
+                    if es and es ~= t then pcall(frame.SetText, frame, es) end
+                    if HookUIFS then pcall(HookUIFS, frame) end
+                end
+                local ok, regions = pcall(function() return { frame:GetRegions() } end)
+                if ok and regions then
+                    for _, r in ipairs(regions) do
+                        if r and r.IsObjectType and (r:IsObjectType("FontString") or r:IsObjectType("SimpleHTML")) then
+                            local t = r:GetText()
+                            if t and t ~= "" then
+                                local es = TranslateStaticText(t)
+                                if es then
+                                    pcall(r.SetText, r, es)
+                                end
                             end
+                            if HookUIFS then pcall(HookUIFS, r) end
                         end
-                        if HookUIFS then pcall(HookUIFS, r) end
                     end
                 end
             end
@@ -1175,9 +1210,12 @@ end
 
 local function PrimeStaticSubtree(root, depth)
     if not root then return end
+    if root.IsShown and not root:IsShown() then return end
     depth = depth or 0
     if depth > 10 then return end
-    if root.IsObjectType and root:IsObjectType("SimpleHTML") then
+    if root.IsObjectType and (root:IsObjectType("SimpleHTML") or root:IsObjectType("Button")
+        or root:IsObjectType("EditBox"))
+        and root.GetText and root.SetText then
         local t = root.GetText and root:GetText()
         local es = t and TranslateStaticText(t)
         if es and es ~= t then pcall(root.SetText, root, es) end
@@ -1206,22 +1244,119 @@ end
 
 local staticPassTimer
 local staticPassPanel
-local function StaticPassSoon(panel)
+local staticPassNeedsGlobal = false
+local StaticPassSoon
+local trialsPanelRoot
+local trialsInteractiveHooked = setmetatable({}, { __mode = "k" })
+
+-- O Trials monta parte dos controles como frames de nível superior ancorados
+-- visualmente na janela, mas fora da árvore de filhos dela. Detectamos apenas
+-- esse painel pelo título para permitir duas passagens globais e limitadas.
+local function ContainsTrialsTitle(root, depth)
+    if not root then return false end
+    depth = depth or 0
+    if depth > 4 then return false end
+
+    local function isTrialsText(obj)
+        if not (obj and obj.GetText) then return false end
+        local ok, text = pcall(obj.GetText, obj)
+        if not ok or type(text) ~= "string" then return false end
+        text = text:gsub("|c%x%x%x%x%x%x%x%x", ""):gsub("|r", "")
+            :gsub("^%s+", ""):gsub("%s+$", "")
+        return text == "Trials" or text == "Desafios"
+    end
+
+    if isTrialsText(root) then return true end
+    local okRegions, regions = pcall(function() return { root:GetRegions() } end)
+    if okRegions and regions then
+        for _, region in ipairs(regions) do
+            if isTrialsText(region) then return true end
+        end
+    end
+    local okChildren, children = pcall(function() return { root:GetChildren() } end)
+    if okChildren and children then
+        for _, child in ipairs(children) do
+            if ContainsTrialsTitle(child, depth + 1) then return true end
+        end
+    end
+    return false
+end
+
+-- Alguns cartões e abas do Trials são frames separados visualmente colocados
+-- dentro da janela. Ligamos somente os controles que ficam dentro dos limites
+-- do painel; depois de um clique, executamos a mesma rajada curta de tradução.
+local function HookTrialsInteractiveFrames(root)
+    if not (root and EnumerateFrames) then return end
+    local okBounds, left, right, bottom, top = pcall(function()
+        return root:GetLeft(), root:GetRight(), root:GetBottom(), root:GetTop()
+    end)
+    if not okBounds or not (left and right and bottom and top) then return end
+
+    local frame = EnumerateFrames()
+    while frame do
+        if not trialsInteractiveHooked[frame] and frame.HookScript
+            and frame.IsShown and frame:IsShown() and frame.GetCenter then
+            local okCenter, x, y = pcall(frame.GetCenter, frame)
+            if okCenter and x and y and x >= left and x <= right and y >= bottom and y <= top then
+                local scriptName
+                if frame.IsObjectType and frame:IsObjectType("Button") then
+                    scriptName = "OnClick"
+                elseif frame.GetScript then
+                    local okUp, onMouseUp = pcall(frame.GetScript, frame, "OnMouseUp")
+                    local okDown, onMouseDown = pcall(frame.GetScript, frame, "OnMouseDown")
+                    if okUp and onMouseUp then
+                        scriptName = "OnMouseUp"
+                    elseif okDown and onMouseDown then
+                        scriptName = "OnMouseDown"
+                    end
+                end
+                if scriptName then
+                    local hooked = pcall(frame.HookScript, frame, scriptName, function()
+                        local panel = trialsPanelRoot
+                        if panel and StaticPassSoon
+                            and (not panel.IsShown or panel:IsShown()) then
+                            StaticPassSoon(panel)
+                        end
+                    end)
+                    if hooked then trialsInteractiveHooked[frame] = true end
+                end
+            end
+        end
+        frame = EnumerateFrames(frame)
+    end
+end
+
+StaticPassSoon = function(panel)
     staticPassPanel = panel or staticPassPanel
+    if panel then
+        local ok, isTrials = pcall(ContainsTrialsTitle, panel, 0)
+        staticPassNeedsGlobal = staticPassNeedsGlobal or (ok and isTrials)
+        if ok and isTrials then trialsPanelRoot = panel end
+    end
     if staticPassPanel then pcall(PrimeStaticSubtree, staticPassPanel, 0) end
-    RetranslateStaticUI()
+    if staticPassNeedsGlobal and trialsPanelRoot then
+        pcall(HookTrialsInteractiveFrames, trialsPanelRoot)
+    end
     if not staticPassTimer then staticPassTimer = CreateFrame("Frame") end
     local elapsed, shots = 0, 0
+    -- Alguns painéis do servidor, especialmente Trials, criam o conteúdo
+    -- interno depois do OnShow. Estas quatro tentativas com atraso progressivo
+    -- terminam em menos de um segundo e percorrem somente o painel aberto.
+    local waits = { 0.03, 0.12, 0.25, 0.45 }
     staticPassTimer:SetScript("OnUpdate", function(self, dt)
         elapsed = elapsed + (dt or 0)
-        local wait = shots == 0 and 0.03 or 0.15
+        local wait = waits[shots + 1] or waits[#waits]
         if elapsed < wait then return end
         elapsed = 0
         shots = shots + 1
         if staticPassPanel then pcall(PrimeStaticSubtree, staticPassPanel, 0) end
-        if shots == 1 then RetranslateStaticUI() end
-        if shots >= 2 then
+        if staticPassNeedsGlobal and (shots == 2 or shots == #waits) then
+            pcall(RetranslateStaticUI)
+            if trialsPanelRoot then pcall(HookTrialsInteractiveFrames, trialsPanelRoot) end
+        end
+        if shots >= #waits then
             staticPassPanel = nil
+            staticPassNeedsGlobal = false
             self:SetScript("OnUpdate", nil)
         end
     end)
@@ -1253,6 +1388,84 @@ local function HookStaticPanels()
         end
     end
 end
+
+-- Descobre somente janelas grandes de nível superior e instala um gancho no
+-- OnShow. A enumeração acontece em eventos de carregamento, nunca em OnUpdate;
+-- quando uma janela abre, apenas a sua própria árvore visível é percorrida.
+-- Isso cobre painéis personalizados como Trials e Customer Support sem trazer
+-- de volta a varredura global que causava quedas de FPS.
+local discoveredStaticRoots = setmetatable({}, { __mode = "k" })
+local function DiscoverStaticPanelRoots()
+    if not (db and db.ui and EnumerateFrames) then return end
+    local frame = EnumerateFrames()
+    while frame do
+        if not discoveredStaticRoots[frame] and frame.GetParent and frame.GetWidth
+            and frame.GetHeight and frame.HookScript then
+            local ok, parent, width, height = pcall(function()
+                return frame:GetParent(), frame:GetWidth(), frame:GetHeight()
+            end)
+            local topLevel = ok and (parent == UIParent or parent == nil)
+            local largePanel = topLevel and (tonumber(width) or 0) >= 220
+                and (tonumber(height) or 0) >= 120
+            if largePanel then
+                local protected = frame.IsProtected and select(1, frame:IsProtected())
+                local forbidden = frame.IsForbidden and frame:IsForbidden()
+                if not protected and not forbidden then
+                    local hooked = pcall(frame.HookScript, frame, "OnShow", StaticPassSoon)
+                    if hooked then
+                        discoveredStaticRoots[frame] = true
+                        if frame.IsShown and frame:IsShown() then
+                            pcall(PrimeStaticSubtree, frame, 0)
+                        end
+                    end
+                end
+            end
+        end
+        frame = EnumerateFrames(frame)
+    end
+end
+
+local discoveryDriver
+local discoveryPending = false
+local function ScheduleStaticRootDiscovery()
+    if discoveryPending then return end
+    discoveryPending = true
+    if not discoveryDriver then discoveryDriver = CreateFrame("Frame") end
+    local elapsed = 0
+    discoveryDriver:SetScript("OnUpdate", function(self, dt)
+        elapsed = elapsed + (dt or 0)
+        if elapsed < 0.05 then return end
+        self:SetScript("OnUpdate", nil)
+        discoveryPending = false
+        pcall(DiscoverStaticPanelRoots)
+    end)
+end
+
+if type(ShowUIPanel) == "function" then
+    pcall(hooksecurefunc, "ShowUIPanel", function(panel)
+        if db and db.ui and panel then StaticPassSoon(panel) end
+    end)
+end
+if type(ToggleFrame) == "function" then
+    pcall(hooksecurefunc, "ToggleFrame", function(panel)
+        if db and db.ui and panel and panel.IsShown and panel:IsShown() then
+            StaticPassSoon(panel)
+        end
+    end)
+end
+
+-- Painéis adicionais do cliente podem nascer quando outro addon é carregado.
+-- A descoberta agora é orientada a eventos e consulta apenas a lista de frames
+-- conhecidos, sem percorrer todos os frames do jogo periodicamente.
+local staticPanelWatcher = CreateFrame("Frame")
+staticPanelWatcher:RegisterEvent("ADDON_LOADED")
+staticPanelWatcher:RegisterEvent("PLAYER_ENTERING_WORLD")
+staticPanelWatcher:SetScript("OnEvent", function()
+    if db and db.ui then
+        pcall(HookStaticPanels)
+        ScheduleStaticRootDiscovery()
+    end
+end)
 
 -- Algumas janelas do Ascension são criadas depois do login. Atualiza somente
 -- textos visíveis, em baixa frequência, para alcançar esses painéis dinâmicos.
@@ -1574,7 +1787,7 @@ local function HookTradeSkillUI()
         end)
     end
     if TradeSkillFrame and TradeSkillFrame.HookScript and TradeSkillFrame:HasScript("OnShow") then
-        TradeSkillFrame:HookScript("OnShow", RetranslateStaticUI)
+        TradeSkillFrame:HookScript("OnShow", StaticPassSoon)
     end
 end
 
@@ -2631,10 +2844,6 @@ local function TranslateCharacterFrame()
         pcall(WalkUIExact, CharacterFrame)
         pcall(WalkUIExact, PaperDollFrame)
         pcall(WalkUIExact, _G["AscensionCharacterFrame"], 0, true)
-        if shots == 1 then
-
-            RetranslateStaticUI()
-        end
         if shots >= 3 then
             self:SetScript("OnUpdate", nil)
         end
@@ -2646,7 +2855,6 @@ if CharacterFrame and CharacterFrame.HookScript then
 end
 APT.TranslateCharacterFrame = TranslateCharacterFrame
 
-local plateElapsed = 0
 local plateRootsSeen = setmetatable({}, { __mode = "k" })
 local plateFSHooked = setmetatable({}, { __mode = "k" })
 local inPlateFSHook = false
@@ -2681,20 +2889,48 @@ local function ScanPlateRoot(fr, depth)
     end
 end
 
-local plateScanner = CreateFrame("Frame")
-plateScanner:SetScript("OnUpdate", function(_, dt)
-    plateElapsed = plateElapsed + (dt or 0)
-    if plateElapsed < 0.75 then return end
-    plateElapsed = 0
+local function ScanVisiblePlateRoots()
     if not (db and db.units and APT.UnitNameEN2PT and WorldFrame) then return end
 
     for _, child in ipairs({ WorldFrame:GetChildren() }) do
-        if not plateRootsSeen[child] then
+        local shown = not child.IsShown or child:IsShown()
+        if shown and not plateRootsSeen[child] then
             plateRootsSeen[child] = true
             pcall(ScanPlateRoot, child, 0)
         end
     end
-end)
+end
+
+-- O cliente 3.3.5 não oferece um evento confiável para toda nameplate.
+-- Em vez de varrer WorldFrame para sempre, fazemos pequenas rajadas somente
+-- quando o alvo, o mouseover, o combate ou o mundo mudam.
+local plateScanner = CreateFrame("Frame")
+local plateElapsed, plateShots = 0, 0
+local function StopPlateScan()
+    plateElapsed, plateShots = 0, 0
+    plateScanner:SetScript("OnUpdate", nil)
+end
+local function SchedulePlateScan()
+    if not (db and db.units) then return end
+    pcall(ScanVisiblePlateRoots)
+    plateElapsed, plateShots = 0, 0
+    plateScanner:SetScript("OnUpdate", function(self, dt)
+        plateElapsed = plateElapsed + (dt or 0)
+        if plateElapsed < 0.25 then return end
+        plateElapsed = 0
+        plateShots = plateShots + 1
+        pcall(ScanVisiblePlateRoots)
+        if plateShots >= 4 then StopPlateScan() end
+    end)
+end
+
+local plateEvents = CreateFrame("Frame")
+for _, event in ipairs({ "PLAYER_ENTERING_WORLD", "PLAYER_TARGET_CHANGED",
+                         "UPDATE_MOUSEOVER_UNIT", "PLAYER_REGEN_DISABLED",
+                         "NAME_PLATE_UNIT_ADDED", "NAME_PLATE_CREATED" }) do
+    pcall(plateEvents.RegisterEvent, plateEvents, event)
+end
+plateEvents:SetScript("OnEvent", SchedulePlateScan)
 
 local UNITFRAME_ROOTS = {
     "XPerl_Target", "XPerl_TargetTarget", "XPerl_Focus", "XPerl_Player",
@@ -2944,6 +3180,10 @@ frame:RegisterEvent("ADDON_LOADED")
 frame:RegisterEvent("PLAYER_ENTERING_WORLD")
 frame:SetScript("OnEvent", function(self, event, arg1)
     if event == "PLAYER_ENTERING_WORLD" then
+        -- Uma passada única é necessária porque muitos FontStrings já existem
+        -- antes de os ganchos orientados a eventos serem instalados. Isto não
+        -- reativa a antiga varredura periódica: executa somente ao entrar no
+        -- mundo e deixa as atualizações posteriores para os painéis visíveis.
         RetranslateStaticUI()
         HookStaticPanels()
 
@@ -3126,6 +3366,10 @@ frame:SetScript("OnEvent", function(self, event, arg1)
             end
         end
     end
+
+    -- Evita que uma consulta feita durante a inicialização preserve um cache
+    -- negativo depois que todos os índices e adaptadores já estão disponíveis.
+    if APT.ClearStaticTextCache then APT.ClearStaticTextCache() end
 
     HookTooltip(GameTooltip)
     HookTooltip(ItemRefTooltip)

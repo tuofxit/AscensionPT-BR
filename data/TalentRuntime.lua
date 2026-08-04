@@ -108,6 +108,7 @@ local function HookTalentRoots()
 end
 
 local talentPassTimer
+local talentPassPending = false
 local function TranslateTalentChrome()
     if not TalentEnabled() then return end
     ApplyTalentGlobalStrings()
@@ -121,17 +122,18 @@ end
 AES.TranslateTalentChrome = TranslateTalentChrome
 
 local function DelayedTalentPass()
+    if talentPassPending then return end
+    talentPassPending = true
     TranslateTalentChrome()
     if not talentPassTimer then talentPassTimer = CreateFrame("Frame") end
-    local elapsed, shot = 0, 0
+    local elapsed = 0
     talentPassTimer:SetScript("OnUpdate", function(self, dt)
         elapsed = elapsed + (dt or 0)
-        local wait = shot == 0 and 0.03 or 0.12
-        if elapsed < wait then return end
+        if elapsed < 0.2 then return end
         elapsed = 0
-        shot = shot + 1
+        talentPassPending = false
+        self:SetScript("OnUpdate", nil)
         TranslateTalentChrome()
-        if shot >= 2 then self:SetScript("OnUpdate", nil) end
     end)
 end
 
