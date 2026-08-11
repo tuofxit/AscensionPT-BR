@@ -41,6 +41,19 @@ local db
 local defaults = { spells = true, items = true, units = true, patterns = true, flavor = true,
                    ui = true, achievements = true, quests = true, gossip = true }
 
+-- O proprio cliente usa estas constantes ao montar o rodape de itens. Defini-las
+-- aqui evita a disputa entre atualizacoes nativas do tooltip e SetText do addon,
+-- que fazia "Sell Price" alternar visualmente entre ingles e portugues.
+SELL_PRICE = "Preco de venda:"
+SALE_PRICE_COLON = "Preco de venda:"
+
+-- Nomes de habilidades ficam no idioma original; somente os textos
+-- explicativos sao localizados. Estas entradas vinham da camada de UI.
+if APT.ServerUI then
+    APT.ServerUI["|cffa336edDark Apotheosis|r"] = nil
+    APT.ServerUI["Dark Apotheosis"] = nil
+end
+
 local function TranslateValue(v)
     local w = APT.ValueWords
     if w[v] then return w[v] end
@@ -244,6 +257,14 @@ local function MatchLinePatterns(text)
                 if n > 0 and rep ~= s then return rep end
             end
         end
+        -- Servidores diferentes podem enviar habilidades com IDs que nao
+        -- existem na base. O dicionario cobre apenas frases mecanicas seguras
+        -- e possui cache, portanto nao cria trabalho continuo na interface.
+        local fallback = APT.TranslatePatternFallback
+        if type(fallback) == "function" then
+            local translated = fallback(s)
+            if translated and translated ~= s then return translated end
+        end
         return nil
     end
     local rep = apply(text)
@@ -268,7 +289,20 @@ local function MatchLinePatterns(text)
     return nil
 end
 
+APT.MatchRuntimeDescription = function(text)
+    for _, pair in ipairs(APT.RuntimeDescriptionPairs or {}) do
+        local captures = { text:match(pair[1]) }
+        if #captures > 0 then
+            return (pair[2]:gsub("{{(%d+)}}", function(index)
+                return captures[tonumber(index)] or ""
+            end))
+        end
+    end
+end
+
 local function TranslateMultilineText(text)
+    local runtime = APT.MatchRuntimeDescription(text)
+    if runtime then return runtime end
     local contexts = {}
     local lines = {}
     local touched = false
@@ -361,6 +395,27 @@ local function CollectTooltipFontStrings(tip)
     return list
 end
 
+-- Algumas fontes compactas usadas pelo cliente do Ascension cortam a parte
+-- superior de glifos acentuados. Mantemos tamanho e contorno originais, mas
+-- usamos a fonte padrão Friz Quadrata nas linhas que contêm caracteres PT-BR.
+-- A troca é feita uma única vez por FontString.
+local readablePTBRFontStrings = setmetatable({}, { __mode = "k" })
+local function EnsureReadablePTBRFont(fs, text)
+    if not fs or readablePTBRFontStrings[fs] or type(text) ~= "string"
+        or not text:find("\195", 1, true) or not fs.GetFont or not fs.SetFont then
+        return
+    end
+    local _, size, flags = fs:GetFont()
+    if not size then return end
+    local ok
+    if flags and flags ~= "" then
+        ok = pcall(fs.SetFont, fs, "Fonts\\FRIZQT__.TTF", size, flags)
+    else
+        ok = pcall(fs.SetFont, fs, "Fonts\\FRIZQT__.TTF", size)
+    end
+    if ok then readablePTBRFontStrings[fs] = true end
+end
+
 local QUEST_TOOLTIP_STATIC = {
     ["You are participating in this quest"] = "Você está participando desta missão",
     ["You are participating in this quest."] = "Você está participando desta missão.",
@@ -401,12 +456,13 @@ local function TranslateTooltipLines(tip)
     local tipName = tip:GetName()
     local first = _G[tipName .. "TextLeft1"]
     local firstText = first and first:GetText()
-    local firstQuestText = firstText and TranslateQuestTooltipText(firstText)
+    local spellTitle = tip.GetSpell and tip:GetSpell()
+    local firstQuestText = (not spellTitle) and firstText and TranslateQuestTooltipText(firstText)
     if firstQuestText then pcall(first.SetText, first, firstQuestText) end
     -- A primeira linha é o título e não faz parte de CollectTooltipFontStrings.
     -- Sem este passo, os tooltips ficavam com título em inglês e só o corpo
     -- era traduzido (ex.: Banco Pessoal, Desafios e Caminho da Ascensão).
-    if not firstQuestText and firstText and db.ui then
+    if not spellTitle and not firstQuestText and firstText and db.ui then
         local firstUI = (APT.CustomUI and APT.CustomUI[firstText])
             or (APT.UIStringsByEN and APT.UIStringsByEN[firstText])
             or (APT.ServerUI and APT.ServerUI[firstText])
@@ -417,7 +473,8 @@ local function TranslateTooltipLines(tip)
     for _, fs in ipairs(CollectTooltipFontStrings(tip)) do
         local text = fs and fs:GetText()
         if text and text ~= "" then
-            local changed = false
+            local isSpellTitle = fs == first and spellTitle
+            local changed = isSpellTitle and true or false
 
             local questText = TranslateQuestTooltipText(text)
             if questText then
@@ -502,23 +559,23 @@ local function TranslateTooltipLines(tip)
                         new = new:sub(1, s - 1) .. p[2] .. new:sub(s + #p[1])
                     end
                 end
-                new = new:gsub("Drains (%d+)%% Maximum Mana", "Drena um %1%% do man\195\161 m\195\161ximo")
+                new = new:gsub("Drains (%d+)%% Maximum Mana", "Drena %1%% da mana máxima")
                 new = new:gsub("Applies (%d+) ([%a][%a%s':]*[%a])", function(n, aura)
                     return "Aplica " .. n .. " " .. (TranslateSpellWord(aura) or aura)
                 end)
                 new = new:gsub("Generates (%d+) ([%a][%a%s':]*[%a])", function(n, res)
-                    return "Genera " .. n .. " " .. (TranslateSpellWord(res) or res)
+                    return "Gera " .. n .. " " .. (TranslateSpellWord(res) or res)
                 end)
 
                 new = new:gsub("Restaura (%d+) health over (%d+) sec%.", "Restaura %1 p. de vida durante %2 s.")
-                new = new:gsub("Restaura (%d+) mana over (%d+) sec%.", "Restaura %1 p. de man\195\161 durante %2 s.")
-                new = new:gsub("Must remain seated while eating%.", "Debes permanecer sentado enquanto comes.")
-                new = new:gsub("Must remain seated while drinking%.", "Debes permanecer sentado enquanto bebes.")
+                new = new:gsub("Restaura (%d+) mana over (%d+) sec%.", "Restaura %1 p. de mana durante %2 s.")
+                new = new:gsub("Must remain seated while eating%.", "Você deve permanecer sentado enquanto come.")
+                new = new:gsub("Must remain seated while drinking%.", "Você deve permanecer sentado enquanto bebe.")
                 new = new:gsub("If you spend at least (%d+) seconds eating you will become well fed and gain (%d+) (%a+) and (%a+) for (%d+) min%.",
                     function(s, v, st1, st2, m)
-                        local SW = { Stamina = "aguante", Spirit = "esp\195\173ritu", Intellect = "intelecto",
-                                     Strength = "fuerza", Agility = "agilidad" }
-                        return "Si pasas ao menos " .. s .. " s comiendo, quedar\195\161s bien alimentado e obtendr\195\161s "
+                        local SW = { Stamina = "vigor", Spirit = "espírito", Intellect = "intelecto",
+                                     Strength = "força", Agility = "agilidade" }
+                        return "Se você passar pelo menos " .. s .. " s comendo, ficará bem alimentado e receberá "
                             .. v .. " p. de " .. (SW[st1] or TranslateSpellWord(st1) or st1)
                             .. " e " .. (SW[st2] or TranslateSpellWord(st2) or st2) .. " durante " .. m .. " min."
                     end)
@@ -526,24 +583,24 @@ local function TranslateTooltipLines(tip)
                 local function teachRepl(verb)
                     return function(thing)
                         local es = APT.SpellNameEN2PT[thing] or (APT.ItemNameEN2PT and APT.ItemNameEN2PT[thing]) or thing
-                        return "Te ense\195\177a a " .. verb .. " " .. es .. "."
+                        return "Ensina a " .. verb .. " " .. es .. "."
                     end
                 end
-                new = new:gsub("Teaches you how to cook a delicious (.-)%.", teachRepl("cocinar"))
+                new = new:gsub("Teaches you how to cook a delicious (.-)%.", teachRepl("cozinhar"))
                 new = new:gsub("Teaches you how to (%a+) (.-)%.", function(verb, thing)
-                    local V = { cook = "cocinar", make = "fabricar", craft = "crear",
-                                brew = "elaborar", sew = "coser", smelt = "fundir",
-                                forge = "forjar", mix = "mezclar", create = "crear",
-                                conjure = "conjurar", cut = "tallar", inscribe = "inscribir",
-                                engrave = "grabar", transmute = "transmutar", summon = "invocar" }
+                    local V = { cook = "cozinhar", make = "fabricar", craft = "criar",
+                                brew = "preparar", sew = "costurar", smelt = "fundir",
+                                forge = "forjar", mix = "misturar", create = "criar",
+                                conjure = "conjurar", cut = "lapidar", inscribe = "inscrever",
+                                engrave = "gravar", transmute = "transmutar", summon = "evocar" }
                     local v = V[verb]
                     if not v then return nil end
                     return teachRepl(v)(thing)
                 end)
 
-                new = new:gsub("Rank (%d+)/(%d+)", "Rango %1/%2")
-                new = new:gsub("Level: (%d+)", "Nivel: %1")
-                new = new:gsub("Lasts (%d+) sec?,? ?stacking (%d+) times", "Dura %1 s, acumul\195\161ndose %2 veces")
+                new = new:gsub("Rank (%d+)/(%d+)", "Grau %1/%2")
+                new = new:gsub("Level: (%d+)", "Nível: %1")
+                new = new:gsub("Lasts (%d+) sec?,? ?stacking (%d+) times", "Dura %1 s e acumula até %2 vezes")
 
                 new = new:gsub("(|T[^|]*|t ?)([%a][%w' %-]+)", function(icon, nm)
                     local es = APT.SpellNameEN2PT[nm] or TranslateSpellWord(nm)
@@ -551,10 +608,10 @@ local function TranslateTooltipLines(tip)
                 end)
 
                 new = new:gsub("Usable while in (|c%x%x%x%x%x%x%x%x)(%a[%a%s']*%a)(|r)", function(c, w, r)
-                    return "Utilizable durante " .. c .. (TranslateSpellWord(w) or w) .. r
+                    return "Pode ser usado enquanto estiver em " .. c .. (TranslateSpellWord(w) or w) .. r
                 end)
                 new = new:gsub("Usable while in (%a[%a%s']*%a)", function(w)
-                    return "Utilizable durante " .. (TranslateSpellWord(w) or w)
+                    return "Pode ser usado enquanto estiver em " .. (TranslateSpellWord(w) or w)
                 end)
 
                 new = new:gsub("^Requires (.+)$", function(list)
@@ -665,7 +722,9 @@ local function TranslateTooltipLines(tip)
                 local normalized = current and normalizeTooltipText(current)
                 if normalized and normalized ~= current then
                     pcall(fs.SetText, fs, normalized)
+                    current = normalized
                 end
+                EnsureReadablePTBRFont(fs, current)
             end
             normalizeFontString(left)
             normalizeFontString(right)
@@ -692,7 +751,7 @@ local function RunLatePass(self, dt)
         return
     end
     latePassElapsed = (latePassElapsed or 0) + (dt or 0.02)
-    if latePassElapsed < 0.05 then return end
+    if latePassElapsed < 0.08 then return end
     latePassElapsed = 0
     local nm = latePassTip:GetName()
     local ok, n = pcall(function() return latePassTip:NumLines() end)
@@ -704,16 +763,96 @@ local function RunLatePass(self, dt)
             if fsr and HookFSForTranslation then HookFSForTranslation(fsr) end
         end
     end
+    -- Alguns servidores preenchem o corpo do tooltip bem depois do evento
+    -- inicial. Durante no maximo dois segundos, enquanto esta dica especifica
+    -- fica aberta, reaplicamos as traducoes as linhas que acabaram de surgir.
+    -- Fora desse intervalo nao existe varredura continua.
+    pcall(APT.TranslateRuntimeSpellBody, latePassTip)
     pcall(TranslateTooltipLines, latePassTip)
-    latePassTip = nil
-    latePassDriver:SetScript("OnUpdate", nil)
+    APT._latePassAttempts = (APT._latePassAttempts or 0) + 1
+    if APT._latePassAttempts >= 25 then
+        latePassTip = nil
+        latePassDriver:SetScript("OnUpdate", nil)
+    end
 end
 
 local function ScheduleLatePass(tip)
     if not (tip and tip.IsVisible) then return end
     latePassTip = tip
     latePassElapsed = 0
+    APT._latePassAttempts = 0
     latePassDriver:SetScript("OnUpdate", RunLatePass)
+end
+
+local function SetWholeSpellTooltipBody(fields, translated)
+    local lineCount = 0
+    for line in (translated .. "\n"):gmatch("(.-)\n") do
+        lineCount = lineCount + 1
+        if fields[lineCount] then fields[lineCount]:SetText(line) end
+    end
+    -- Evita que a ultima linha antiga em ingles continue visivel quando a
+    -- traducao possui menos linhas que a montagem original do cliente.
+    for i = lineCount + 1, #fields do
+        fields[i]:SetText("")
+    end
+    return true
+end
+
+local function MatchWholeSpellTooltipBody(text, spellID, englishName)
+    local ids, seen = {}, {}
+    local function addID(id)
+        if id and not seen[id] then
+            seen[id] = true
+            ids[#ids + 1] = id
+        end
+    end
+
+    addID(spellID)
+    if englishName and APT.NameToIDs[englishName] then
+        for _, id in ipairs(APT.NameToIDs[englishName]) do addID(id) end
+    end
+
+    for _, id in ipairs(ids) do
+        local translated = APT.MatchExactPairSet(text, APT.DescByID[id], APT.DescPairs)
+            or APT.MatchExactPairSet(text, APT.TipByID[id], APT.TipPairs)
+        if translated and translated ~= text then return translated end
+    end
+end
+
+APT.TranslateRuntimeSpellBody = function(tip, spellID, englishName)
+    local name = tip and tip:GetName()
+    if not name then return false end
+    if not spellID and tip.GetSpell then
+        local _, _, detectedID = tip:GetSpell()
+        spellID = detectedID
+    end
+    if not englishName then
+        local title = _G[name .. "TextLeft1"]
+        englishName = title and title:GetText()
+    end
+    local lines, fields = {}, {}
+    for i = 3, tip:NumLines() do
+        local fs = _G[name .. "TextLeft" .. i]
+        local text = fs and fs:GetText()
+        if not text then return false end
+        lines[#lines + 1] = text
+        fields[#fields + 1] = fs
+    end
+    local source = table.concat(lines, "\n")
+    local translated = MatchWholeSpellTooltipBody(source, spellID, englishName)
+        or APT.MatchRuntimeDescription(source)
+    if not translated then
+        local changed = false
+        for i, field in ipairs(fields) do
+            local line = MatchLinePatterns(lines[i])
+            if line and line ~= lines[i] then
+                field:SetText(line)
+                changed = true
+            end
+        end
+        return changed
+    end
+    return SetWholeSpellTooltipBody(fields, translated)
 end
 
 local function OnSpellTooltip(tip)
@@ -723,15 +862,13 @@ local function OnSpellTooltip(tip)
     local L1 = _G[name .. "TextLeft1"]
     local enName = L1 and L1:GetText()
 
-    local esName = enName and APT.SpellNameEN2PT[enName]
-    if esName then L1:SetText(esName) end
-
     local L2 = _G[name .. "TextLeft2"]
     local rankText = L2 and L2:GetText()
     if rankText and APT.RankEN2PT[rankText] then
         L2:SetText(APT.RankEN2PT[rankText])
     end
 
+    APT.TranslateRuntimeSpellBody(tip, spellID, enName)
     if spellID and APT.DescByID[spellID] then
         TranslateBodyByPairs(tip, APT.DescByID[spellID], APT.DescPairs)
     end
@@ -758,9 +895,6 @@ local function OnAuraTooltip(tip, unit, index, filter)
     local name = tip:GetName()
     local L1 = _G[name .. "TextLeft1"]
     local enName = L1 and L1:GetText()
-    local esName = enName and APT.SpellNameEN2PT[enName]
-    if esName then L1:SetText(esName) end
-
     local translated = false
     if spellID and APT.TipByID[spellID] then
         translated = TranslateBodyByPairs(tip, APT.TipByID[spellID], APT.TipPairs)
@@ -910,15 +1044,205 @@ local function TranslateAscensionSpellButtons()
     end
 end
 
+-- Reparo direto das descricoes de feiticos exibidas pelo servidor. Alguns
+-- servidores escrevem as linhas depois dos eventos normais de GameTooltip;
+-- por isso este caminho revisa somente tooltips visiveis e somente sob demanda.
+APT.RepairSpellbookTooltipText = function(text)
+    if type(text) ~= "string" or text == "" then return nil end
+    local repaired = text
+    -- Versoes curtas: cada linha cabe no tooltip compacto do livro e no tooltip normal.
+    repaired = repaired:gsub("Emanate an aura for ([%d]+) sec that", "Emana aura por %1 s:")
+    repaired = repaired:gsub("grants party and raid members a", "grupo e raide:")
+    repaired = repaired:gsub("([%d]+)%% chance when they cast a spell", "%1%% de chance ao lancarem")
+    repaired = repaired:gsub("or ability to heal themselves for ([^%.]+)%.", "feitico/habilidade: cura %1.")
+    repaired = repaired:gsub("reduces the resource costs of spells by ([%d]+)%%", "reduz o custo de recursos em %1%%")
+    repaired = repaired:gsub("reduces the resource costs of spells", "reduz o custo de recursos")
+    repaired = repaired:gsub("by ([%d]+)%% for party and raid members", "em %1%% para grupo e raide")
+    repaired = repaired:gsub("for party and raid members within ([%d]+) yds", "para grupo e raide: raio de %1 m")
+    repaired = repaired:gsub("within ([%d]+) yds%.?", "raio de %1 m.")
+    repaired = repaired:gsub("While active, you generate ([%d]+) Focus every ([%d]+) sec%.", "Enquanto ativo: %1 Foco a cada %2 s.")
+    repaired = repaired:gsub("While active, you generate ([%d]+) Focus", "Enquanto ativo: gera %1 Foco")
+    repaired = repaired:gsub("every ([%d]+) sec%.?", "a cada %1 s.")
+    repaired = repaired:gsub("Increase your chance to block and block value in ([%d%.,]+)%% during ([%d%.,]+) s%.", "Aumenta sua chance e valor de bloqueio em %1%% durante %2 s.")
+    repaired = repaired:gsub("Increase your chance to block and block value by ([%d%.,]+)%% for ([%d%.,]+) s%.", "Aumenta sua chance e valor de bloqueio em %1%% durante %2 s.")
+    repaired = repaired:gsub("Aumenta seu/sua chance to block and block value em ([%d%.,]+)%% durante ([%d%.,]+) s%.", "Aumenta sua chance de bloqueio e o valor de bloqueio em %1%% durante %2 s.")
+    repaired = repaired:gsub("Your threat generated is significantly increased%.", "Sua ameaca gerada aumenta significativamente.")
+    repaired = repaired:gsub("Teaches you%s+", "Ensina: ")
+    repaired = repaired:gsub("Dark Apotheosis cannot cower behind a shield%.", "Dark Apotheosis: sem escudo.")
+    repaired = repaired:gsub("Shields cannot be equipped while transformed%.", "Nao equipa escudos transformado.")
+    repaired = repaired:gsub("Sua ameaca gerada aumenta significativamente%.", "Aumenta bastante a ameaca gerada.")
+    repaired = repaired:gsub("Dark Apotheosis nao pode usar escudo%.", "Dark Apotheosis: sem escudo.")
+    repaired = repaired:gsub("Escudos nao podem ser equipados durante a transformacao%.", "Nao equipa escudos transformado.")
+    repaired = repaired:gsub("Ataca duas vezes, causando ([%d%.,]+) de dano Fisico por golpe%.", "Ataca 2 vezes: %1 de dano Fisico cada.")
+    if repaired ~= text then return repaired end
+    -- Tooltips customizados frequentemente acrescentam um rodape depois do
+    -- corpo (SHIFT, modificadores, etc.). Retira-o apenas para a busca e o
+    -- devolve intacto depois, permitindo que padroes completos sejam usados.
+    local body, footer = text:match("^(.-)(\n\n|cff00DDFF.-|r)$")
+    if not body then body, footer = text:match("^(.-)(\n\nThis uses .- modifiers%.)$") end
+    if body and footer then
+        footer = footer:gsub("This uses (.-) modifiers%.", "Usa modificadores de %1.")
+        local bodyPattern = MatchLinePatterns(body)
+        if bodyPattern and bodyPattern ~= body then return bodyPattern .. footer end
+        local bodyTranslate = APT.TranslateDescriptionString
+        local bodyTranslated = type(bodyTranslate) == "function" and bodyTranslate(body)
+        if bodyTranslated and bodyTranslated ~= body then return bodyTranslated .. footer end
+    end
+    local linePattern = MatchLinePatterns(text)
+    if linePattern and linePattern ~= text then return linePattern end
+    -- Reusa os dicionarios completos para qualquer outra habilidade que chegue
+    -- em um frame fora do fluxo normal de eventos.
+    local translate = APT.TranslateDescriptionString
+    local translated = type(translate) == "function" and translate(text)
+    if translated and translated ~= text then return translated end
+end
+
+APT.ScanSpellbookTooltips = function()
+    local frame = EnumerateFrames()
+    local found = false
+    while frame do
+        local frameName = frame.GetName and frame:GetName()
+        if frameName and frameName:find("Tooltip", 1, true) and frame.IsShown and frame:IsShown() then
+            found = true
+            -- O servidor pode preencher o corpo depois de OnTooltipSetSpell.
+            -- Aqui o tooltip ja esta completo: tente primeiro os ~100 mil
+            -- modelos de descricoes conhecidos, identificados pelo ID/nome do
+            -- feitico, antes das regras genericas por linha.
+            if type(APT.TranslateRuntimeSpellBody) == "function" then
+                pcall(APT.TranslateRuntimeSpellBody, frame)
+            end
+            local fields, texts = {}, {}
+            for _, region in ipairs({ frame:GetRegions() }) do
+                if region and region.GetText and region.SetText then
+                    local original = region:GetText()
+                    if original and original ~= "" then
+                        fields[#fields + 1] = region
+                        texts[#texts + 1] = original
+                    end
+                end
+            end
+            -- O tooltip personalizado pode dividir uma descricao em varios
+            -- FontStrings. Testamos blocos contiguos para pular titulo, rank
+            -- e rodape e casar o corpo integral na base, sem depender do ID.
+            local wholeTranslated = false
+            for first = 1, #texts do
+                for last = #texts, first, -1 do
+                    local source = table.concat(texts, "\n", first, last)
+                    local translated = APT.TranslateVisibleDescriptionExact(source)
+                    if translated then
+                        local targetFields = {}
+                        for i = first, last do targetFields[#targetFields + 1] = fields[i] end
+                        SetWholeSpellTooltipBody(targetFields, translated)
+                        wholeTranslated = true
+                        break
+                    end
+                end
+                if wholeTranslated then break end
+            end
+            if not wholeTranslated then
+                for _, region in ipairs(fields) do
+                    local original = region:GetText()
+                    local repaired = APT.RepairSpellbookTooltipText(original)
+                    if repaired then
+                        pcall(region.SetText, region, repaired)
+                    elseif APT.RecordUnknownSpellDescription then
+                        APT.RecordUnknownSpellDescription(original)
+                    end
+                end
+            end
+        end
+        frame = EnumerateFrames(frame)
+    end
+    return found
+end
+
+APT.SpellbookRepairOnUpdate = function(self, elapsed)
+    local spellbook = AscensionSpellbookFrame
+    if not db or not db.spells or not spellbook or not spellbook:IsShown() then
+        self:SetScript("OnUpdate", nil)
+        return
+    end
+    APT._spellbookRepairElapsed = (APT._spellbookRepairElapsed or 0) + (elapsed or 0)
+    if APT._spellbookRepairElapsed < 0.15 then return end
+    APT._spellbookRepairElapsed = 0
+    APT.ScanSpellbookTooltips()
+end
+
+APT._spellbookRepairDriver = APT._spellbookRepairDriver or CreateFrame("Frame")
+
+-- Registra somente descricoes inglesas ainda desconhecidas. O WoW grava a
+-- tabela de configuracao ao sair do jogo; ela permite gerar um lote completo
+-- de novas traducoes depois, sem pedir screenshots um a um.
+APT.RecordUnknownSpellDescription = function(text)
+    if not db or type(text) ~= "string" or #text < 35 then return end
+    local lower = text:lower()
+    if not (lower:find(" damage", 1, true) or lower:find(" target", 1, true)
+        or lower:find(" enemy", 1, true) or lower:find(" your ", 1, true)
+        or lower:find(" dealing", 1, true) or lower:find(" causing", 1, true)
+        or lower:find(" granting", 1, true) or lower:find(" increases", 1, true)) then return end
+    db.UntranslatedSpellDescriptions = db.UntranslatedSpellDescriptions or {}
+    if db.UntranslatedSpellDescriptions[text] then return end
+    if (db.UntranslatedSpellDescriptionCount or 0) >= 12000 then return end
+    db.UntranslatedSpellDescriptions[text] = true
+    db.UntranslatedSpellDescriptionCount = (db.UntranslatedSpellDescriptionCount or 0) + 1
+end
+
+-- Busca exata independente do ID. Servidores alternativos nem sempre expõem
+-- o ID do feitico ao addon, mas a base ja possui um indice pelo inicio de cada
+-- descricao. O cache evita repetir a busca para o mesmo texto exibido.
+APT.TranslateVisibleDescriptionExact = function(text)
+    if type(text) ~= "string" or #text < 12 then return nil end
+    APT._visibleDescriptionExactCache = APT._visibleDescriptionExactCache or {}
+    local cached = APT._visibleDescriptionExactCache[text]
+    if cached ~= nil then return cached or nil end
+    local translated
+    for words = 12, 3, -1 do
+        local prefix = PrefijoDe(text, words)
+        local indexes = prefix ~= "" and APT.DescByPrefix and APT.DescByPrefix[prefix]
+        translated = indexes and APT.MatchExactPairSet and APT.MatchExactPairSet(text, indexes, APT.DescPairs)
+        if translated and translated ~= text then break end
+        indexes = prefix ~= "" and APT.TipByPrefix and APT.TipByPrefix[prefix]
+        translated = indexes and APT.MatchExactPairSet and APT.MatchExactPairSet(text, indexes, APT.TipPairs)
+        if translated and translated ~= text then break end
+        translated = nil
+    end
+    if (APT._visibleDescriptionExactCacheSize or 0) >= 1024 then
+        APT._visibleDescriptionExactCache = {}
+        APT._visibleDescriptionExactCacheSize = 0
+    end
+    APT._visibleDescriptionExactCache[text] = translated or false
+    APT._visibleDescriptionExactCacheSize = (APT._visibleDescriptionExactCacheSize or 0) + 1
+    return translated
+end
+
+-- O mesmo reparo tambem vale para tooltips fora do livro (barra de acoes,
+-- inventario, arvore de talentos etc.). Ele e iniciado pelo proprio tooltip e
+-- para assim que nao houver tooltip visivel, sem varredura permanente da UI.
+APT.VisibleTooltipRepairOnUpdate = function(self, elapsed)
+    if not db or not db.spells then
+        self:SetScript("OnUpdate", nil)
+        return
+    end
+    APT._visibleTooltipRepairElapsed = (APT._visibleTooltipRepairElapsed or 0) + (elapsed or 0)
+    if APT._visibleTooltipRepairElapsed < 0.12 then return end
+    APT._visibleTooltipRepairElapsed = 0
+    if not APT.ScanSpellbookTooltips() then
+        self:SetScript("OnUpdate", nil)
+    end
+end
+
+APT._visibleTooltipRepairDriver = APT._visibleTooltipRepairDriver or CreateFrame("Frame")
+APT.StartVisibleTooltipRepair = function()
+    if not db or not db.spells then return end
+    APT._visibleTooltipRepairElapsed = 0
+    APT._visibleTooltipRepairDriver:SetScript("OnUpdate", APT.VisibleTooltipRepairOnUpdate)
+end
+
 local function HookSpellbook()
 
     if type(SpellButton_UpdateButton) == "function" then
         hooksecurefunc("SpellButton_UpdateButton", function(self)
             if not db or not db.spells then return end
-            local nameFS = _G[self:GetName() .. "SpellName"]
-            local text = nameFS and nameFS:GetText()
-            local es = text and APT.SpellNameEN2PT[text]
-            if es then nameFS:SetText(es) end
             local subFS = _G[self:GetName() .. "SubSpellName"]
             local sub = subFS and subFS:GetText()
             if sub and sub ~= "" then
@@ -941,7 +1265,39 @@ local function HookSpellbook()
 end
 
 local function ApplyUIStrings()
-    return 0
+    -- Aplicar milhares de globais novamente a cada atualização provocava
+    -- conflitos e custo desnecessário. Estas constantes são fontes estáveis
+    -- usadas pelo próprio cliente para montar rótulos e sufixos de recarga. Ao
+    -- localizá-las uma vez, o jogo deixa de alternar o texto com o hook.
+    local stableGlobals = {
+        "ROLL_DISENCHANT",
+        "ITEM_COOLDOWN_TOTAL",
+        "ITEM_COOLDOWN_TOTAL_DAYS",
+        "ITEM_COOLDOWN_TOTAL_HOURS",
+        "ITEM_COOLDOWN_TOTAL_MIN",
+        "ITEM_COOLDOWN_TOTAL_SEC",
+        "SAY_MESSAGE",
+        "PARTY_MESSAGE",
+        "RAID",
+        "BATTLEGROUND",
+        "BATTLEGROUND_LEADER",
+        "GUILD_CHAT",
+        "YELL_MESSAGE",
+        "WHISPER",
+        "EMOTE",
+        "REPLY_MESSAGE",
+        "LANGUAGE",
+        "VOICEMACRO_LABEL",
+    }
+    local applied = 0
+    for _, key in ipairs(stableGlobals) do
+        local translated = APT.UIStrings and APT.UIStrings[key]
+        if type(translated) == "string" and translated ~= "" then
+            _G[key] = translated
+            applied = applied + 1
+        end
+    end
+    return applied
 end
 
 local function NormalizeStaticKey(text)
@@ -1073,6 +1429,43 @@ local function TranslateStaticTextUncached(t)
     return nil
 end
 
+-- O corpo inteiro de um tooltip nunca pode usar a busca parcial de MatchPair:
+-- isso permite substituir apenas o comeco da descricao e esconder o restante.
+-- Fica em APT para nao aumentar o limite de locais do arquivo Core.lua.
+APT.MatchExactPairSet = function(text, pairIndexes, pairsTable)
+    local function tryPair(pair)
+        if not pair then return nil end
+        local work = text
+        local captures = { work:match(pair[1]) }
+        if captures[1] == nil and (work:find("\r", 1, true) or work:find("|R", 1, true)) then
+            work = work:gsub("\r", ""):gsub("|R", "|r")
+            captures = { work:match(pair[1]) }
+        end
+        if captures[1] ~= nil then return ApplyTemplate(pair[2], captures) end
+    end
+
+    if type(pairIndexes) == "number" then
+        return tryPair(pairsTable[pairIndexes])
+    end
+    for _, idx in ipairs(pairIndexes or {}) do
+        local translated = tryPair(pairsTable[idx])
+        if translated then return translated end
+    end
+    if AscensionSpellbookFrame and not APT._spellbookRepairHooked then
+        APT._spellbookRepairHooked = true
+        AscensionSpellbookFrame:HookScript("OnShow", function()
+            APT._spellbookRepairElapsed = 0
+            APT._spellbookRepairDriver:SetScript("OnUpdate", APT.SpellbookRepairOnUpdate)
+        end)
+        AscensionSpellbookFrame:HookScript("OnHide", function()
+            APT._spellbookRepairDriver:SetScript("OnUpdate", nil)
+        end)
+        if AscensionSpellbookFrame:IsShown() then
+            APT._spellbookRepairDriver:SetScript("OnUpdate", APT.SpellbookRepairOnUpdate)
+        end
+    end
+end
+
 function TranslateStaticText(t)
     if type(t) ~= "string" or t == "" then return nil end
     local cached = staticTextCache[t]
@@ -1103,6 +1496,8 @@ APT.TranslateStaticText = TranslateStaticText
 
 APT.TranslateDescriptionString = function(text)
     if type(text) ~= "string" or text == "" then return nil end
+    local runtime = APT.MatchRuntimeDescription(text)
+    if runtime then return runtime end
     if text:find("\n", 1, true) then
         local multi = TranslateMultilineText(text)
         if multi and multi ~= text then return multi end
@@ -1815,6 +2210,7 @@ HookFSForTranslation = function(fs)
             inAPTSet = true
             pcall(self.SetText, self, translated)
             inAPTSet = false
+            EnsureReadablePTBRFont(self, translated)
         end
     end)
 end
@@ -1822,17 +2218,30 @@ end
 local function HookTooltip(tip)
     if not tip then return end
 
+    APT._spellBookTooltipHooked = APT._spellBookTooltipHooked or setmetatable({}, { __mode = "k" })
+    if tip.SetSpellBookItem and not APT._spellBookTooltipHooked[tip] then
+        APT._spellBookTooltipHooked[tip] = true
+        hooksecurefunc(tip, "SetSpellBookItem", function(self)
+            if db and db.spells then
+                APT.TranslateRuntimeSpellBody(self)
+            end
+        end)
+    end
+
     if tip:HasScript("OnShow") then
         tip:HookScript("OnShow", function(t)
             if not db then return end
+            if db.spells then APT.TranslateRuntimeSpellBody(t) end
+            if db.spells and APT.StartVisibleTooltipRepair then APT.StartVisibleTooltipRepair() end
             pcall(TranslateTooltipLines, t)
             ScheduleLatePass(t)
             local ok, n = pcall(function() return t:NumLines() end)
             if ok and n then
                 local nm = t:GetName()
+                local shownSpell = t.GetSpell and t:GetSpell()
                 for i = 1, n do
                     local fs = _G[nm .. "TextLeft" .. i]
-                    if fs then HookFSForTranslation(fs) end
+                    if fs and (i > 1 or not shownSpell) then HookFSForTranslation(fs) end
                     local fsr = _G[nm .. "TextRight" .. i]
                     if fsr then HookFSForTranslation(fsr) end
                 end
@@ -1840,7 +2249,10 @@ local function HookTooltip(tip)
         end)
     end
     if tip:HasScript("OnTooltipSetSpell") then
-        tip:HookScript("OnTooltipSetSpell", OnSpellTooltip)
+        tip:HookScript("OnTooltipSetSpell", function(t)
+            OnSpellTooltip(t)
+            if db and db.spells and APT.StartVisibleTooltipRepair then APT.StartVisibleTooltipRepair() end
+        end)
     end
     if tip:HasScript("OnTooltipSetItem") then
         tip:HookScript("OnTooltipSetItem", OnItemTooltip)
@@ -1868,16 +2280,16 @@ end
 
 local OPTIONS_LIST = {
     { key = "spells", text = "Feitiços, talentos e auras" },
-    { key = "items", text = "Itens (nombres)" },
-    { key = "flavor", text = "Texto ambiental de itens (a cita amarilla)" },
-    { key = "units", text = "Nombres de NPC (oficiales esES; os custom de CoA siguen em inglés)" },
-    { key = "quests", text = "Missões (descripción, alvos, progreso e entregue)" },
-    { key = "gossip", text = "Diálogos de NPC (ventana de conversación, chat e burbujas)" },
+    { key = "items", text = "Itens (nomes e descrições)" },
+    { key = "flavor", text = "Textos adicionais de itens (linhas amarelas)" },
+    { key = "units", text = "Nomes de NPCs" },
+    { key = "quests", text = "Missões (descrição, objetivos, progresso e conclusão)" },
+    { key = "gossip", text = "Diálogos de NPCs (janelas, chat e balões)" },
     { key = "achievements", text = "Conquistas" },
-    { key = "patterns", text = "Líneas genéricas de tooltip (coste, alcance, rangos...)" },
-    { key = "ui", text = "Interfaz e menús (os cambios requieren /reload)" },
-    { key = "errores", text = "Mensajes de error em pantalla", setter = "SetErrorsEnabled" },
-    { key = "chat", text = "Mensajes do chat (botín, experiência, sistema...)", setter = "SetChatEnabled" },
+    { key = "patterns", text = "Linhas genéricas de tooltip (custo, alcance e graus)" },
+    { key = "ui", text = "Interface e menus (alterações exigem /reload)" },
+    { key = "errores", text = "Mensagens de erro na tela", setter = "SetErrorsEnabled" },
+    { key = "chat", text = "Mensagens do chat (saque, experiência e sistema)", setter = "SetChatEnabled" },
     }
 
 local function BuildOptionsPanel()
@@ -1887,12 +2299,12 @@ local function BuildOptionsPanel()
 
     local title = panel:CreateFontString(nil, "ARTWORK", "GameFontNormalLarge")
     title:SetPoint("TOPLEFT", 16, -16)
-    title:SetText("AscensionPTBR |cff33ff99\226\128\148 Traducci\195\179n ao espa\195\177ol|r")
+    title:SetText("AscensionPTBR |cff33ff99— Português (Brasil)|r")
 
     local sub = panel:CreateFontString(nil, "ARTWORK", "GameFontHighlightSmall")
     sub:SetPoint("TOPLEFT", title, "BOTTOMLEFT", 0, -8)
     sub:SetJustifyH("LEFT")
-    sub:SetText("Os cambios se aplican ao instante salvo indicaci\195\179n. Tambi\195\169n disponible: /ases")
+    sub:SetText("As alterações são aplicadas imediatamente, salvo indicação. Comando: /ases")
 
     local prev
     for i, opt in ipairs(OPTIONS_LIST) do
@@ -1915,7 +2327,7 @@ local function BuildOptionsPanel()
                 db[opt.key] = on
             end
             if opt.key == "ui" then
-                DEFAULT_CHAT_FRAME:AddMessage("|cff33ff99AscensionPTBR|r interfaz: haz /reload para aplicar o cambio")
+                DEFAULT_CHAT_FRAME:AddMessage("|cff33ff99AscensionPTBR|r: use /reload para aplicar a alteração da interface.")
             end
         end)
         prev = cb
@@ -2149,6 +2561,45 @@ local function QuestGuardSetFields(names, es, em, variants)
     end
 end
 
+-- Missões novas do servidor podem aparecer antes de seus IDs entrarem no banco
+-- local. Para esses casos, aplicamos somente substituições exatas cadastradas em
+-- Corrections.lua. Isso mantém o custo constante e evita traduções parciais.
+local function TranslateKnownQuestText()
+    local exact = APT.QuestTextEN2PT
+    if type(exact) ~= "table" then return end
+
+    local function LookupExact(text)
+        local translated = exact[text]
+        if translated then return translated end
+
+        -- O servidor pode variar apenas quebras de linha/espaços entre builds.
+        -- A comparação continua exigindo que todo o conteúdo seja igual.
+        local normalized = CollapseWS(text)
+        for source, candidate in pairs(exact) do
+            if type(source) == "string" and CollapseWS(source) == normalized then
+                return candidate
+            end
+        end
+    end
+
+    local groups = {
+        QUEST_INFO_TITLE_FIELDS,
+        QUEST_INFO_DESCRIPTION_FIELDS,
+        QUEST_INFO_OBJECTIVE_FIELDS,
+        QUEST_INFO_REWARD_FIELDS,
+    }
+    for _, names in ipairs(groups) do
+        for _, name in ipairs(names) do
+            local fs = _G[name]
+            local shown = fs and fs.GetText and fs:GetText()
+            local translated = shown and LookupExact(shown)
+            if type(translated) == "string" and translated ~= "" and translated ~= shown then
+                pcall(fs.SetText, fs, QuestRenderPT(translated))
+            end
+        end
+    end
+end
+
 local function TranslateQuestInfo()
     if not (db and db.quests) then return end
     local id
@@ -2174,6 +2625,7 @@ local function TranslateQuestInfo()
             if not id then id = ResolveQuestIDByPanels(t) end
         end
     end
+    TranslateKnownQuestText()
     if not id or id == 0 then
 
         if db.capture and _G["QuestInfoTitleHeader"] then
@@ -3166,9 +3618,9 @@ updFrame:SetScript("OnEvent", function(self, event, prefix, msg, channel)
     if score > myScore and score > notifiedScore then
         notifiedScore = score
         DEFAULT_CHAT_FRAME:AddMessage(
-            "|cff33ff99AscensionPTBR|r: hay uma versión nueva |cffffffff" .. v
-            .. "|r disponible (tem " .. myVersionStr
-            .. "). Descárgala em |cff99ccffgithub.com/HideXs/AscensionPTBR|r (apartado Releases).")
+            "|cff33ff99AscensionPTBR|r: há uma nova versão disponível: |cffffffff" .. v
+            .. "|r (você está usando " .. myVersionStr
+            .. "). Baixe em |cff99ccffgithub.com/tuofxit/AscensionPT-BR|r.")
         pcall(ShowUpdatePopup, v)
     elseif score < myScore and channel and REBROADCAST_CHANNELS[channel] then
         BroadcastVersion(channel)
@@ -3480,7 +3932,7 @@ frame:SetScript("OnEvent", function(self, event, arg1)
     local n = 0
     for _ in pairs(APT.SpellNameEN2PT) do n = n + 1 end
     DEFAULT_CHAT_FRAME:AddMessage(format(
-        "|cff33ff99AscensionPTBR|r cargado: %d nombres de feitiço, %d descripciones, %d itens, %d NPCs. /ases para opciones.",
+        "|cff33ff99AscensionPTBR|r carregado: %d nomes de habilidades, %d descrições, %d itens e %d NPCs. Use /ases para abrir as opções.",
         n, #APT.DescPairs, (function() local c = 0 for _ in pairs(APT.ItemName) do c = c + 1 end return c end)(),
         (function() local c = 0 for _ in pairs(APT.UnitName) do c = c + 1 end return c end)()))
 end)

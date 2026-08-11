@@ -5,4 +5,7 @@
 -- instalações que ainda o carreguem. Adicione aqui somente falas confirmadas
 -- dentro do Project Ascension / Conquest of Azeroth.
 AscensionPTBR = AscensionPTBR or {}
-AscensionPTBR.GossipEN2ES = AscensionPTBR.GossipEN2ES or {}
+AscensionPTBR.GossipEN2PT = AscensionPTBR.GossipEN2PT or {}
+
+AscensionPTBR.GossipEN2PT["The Glorious Azzar Faire has opened its gates! Step through the portal by the lake at the entrance to Stormwind and be among the first to experience the wonders hidden across Dawnrise Island!"] =
+    "A Gloriosa Azzar Faire abriu seus portões! Atravesse o portal junto ao lago, na entrada de Ventobravo, e seja um dos primeiros a conhecer as maravilhas escondidas na Ilha Dawnrise!"

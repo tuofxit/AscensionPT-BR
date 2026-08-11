@@ -420,4 +420,6 @@ AscensionPTBR.CustomUI = {
     ["Muito tempo"] = "Muito longo",
     ["Appearance"] = "Aparência",
     ["appearance"] = "aparência",
+    ["The Glorious Azzar Faire has opened its gates! Step through the portal by the lake at the entrance to Stormwind and be among the first to experience the wonders hidden across Dawnrise Island!"] = "A Gloriosa Azzar Faire abriu seus portões! Atravesse o portal junto ao lago, na entrada de Ventobravo, e seja um dos primeiros a conhecer as maravilhas escondidas na Ilha Dawnrise!",
+    ["You must be at least level 80 to enter."] = "Você precisa ter pelo menos nível 80 para entrar.",
 }

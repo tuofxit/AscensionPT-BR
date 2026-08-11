@@ -190,6 +190,11 @@ end
 -- CONSTRUÇÃO DAS REGRAS
 -- ============================================================================
 
+local SpellSchoolPT = {
+  Physical = "fisico", Fire = "Fogo", Frost = "Gelo", Nature = "Natureza",
+  Shadow = "Sombras", Arcane = "Arcano", Holy = "Sagrado", Chromatic = "cromatico",
+}
+
 function PatternDictionary:Build()
   -- Limpa regras anteriores
   self.rules = {}
@@ -1203,6 +1208,166 @@ function PatternDictionary:Build()
     pattern = "^You have learned (.+)",
     handler = function(self, item)
       return string.format("Você aprendeu %s", item)
+    end,
+  })
+
+  -- ========================================================================
+  -- CATEGORIA: Habilidades genericas de servidores personalizados
+  -- Estes padroes sao independentes de ID e entram apenas como fallback
+  -- quando uma descricao nao existe na base principal.
+  -- ========================================================================
+
+  self:AddRule({
+    name = "SpellDealsSchoolDamageOverTime",
+    description = "Traduz dano elemental durante uma duracao",
+    category = "Spells",
+    priority = 92,
+    pattern = "^Deals (%d+) ([A-Z][%a]+) [Dd]amage over (%d+) sec%.?$",
+    handler = function(_, amount, school, duration)
+      return string.format("Causa %s de dano de %s durante %s s.", amount, SpellSchoolPT[school] or school, duration)
+    end,
+  })
+
+  self:AddRule({
+    name = "SpellDealsSchoolDamage",
+    description = "Traduz dano elemental direto",
+    category = "Spells",
+    priority = 91,
+    pattern = "^Deals (%d+) ([A-Z][%a]+) [Dd]amage%.?$",
+    handler = function(_, amount, school)
+      return string.format("Causa %s de dano de %s.", amount, SpellSchoolPT[school] or school)
+    end,
+  })
+
+  self:AddRule({
+    name = "SpellDealsDamage",
+    description = "Traduz dano direto generico",
+    category = "Spells",
+    priority = 90,
+    pattern = "^Deals (%d+) [Dd]amage%.?$",
+    handler = function(_, amount)
+      return string.format("Causa %s de dano.", amount)
+    end,
+  })
+
+  self:AddRule({
+    name = "SpellHealsTarget",
+    description = "Traduz cura do alvo",
+    category = "Spells",
+    priority = 90,
+    pattern = "^Heals the target for (%d+)%.?$",
+    handler = function(_, amount)
+      return string.format("Cura o alvo em %s.", amount)
+    end,
+  })
+
+  self:AddRule({
+    name = "SpellHealsHealth",
+    description = "Traduz cura de vida",
+    category = "Spells",
+    priority = 90,
+    pattern = "^Heals (%d+) [Hh]ealth%.?$",
+    handler = function(_, amount)
+      return string.format("Restaura %s de vida.", amount)
+    end,
+  })
+
+  self:AddRule({
+    name = "SpellLastsSeconds",
+    description = "Traduz duracao simples",
+    category = "Spells",
+    priority = 90,
+    pattern = "^Lasts (%d+) sec%.?$",
+    handler = function(_, duration)
+      return string.format("Dura %s s.", duration)
+    end,
+  })
+
+  self:AddRule({
+    name = "SpellStunsTarget",
+    description = "Traduz atordoamento do alvo",
+    category = "Spells",
+    priority = 90,
+    pattern = "^Stuns the target for (%d+) sec%.?$",
+    handler = function(_, duration)
+      return string.format("Atordoa o alvo por %s s.", duration)
+    end,
+  })
+
+  self:AddRule({
+    name = "SpellSilencesTarget",
+    description = "Traduz silencio do alvo",
+    category = "Spells",
+    priority = 90,
+    pattern = "^Silences the target for (%d+) sec%.?$",
+    handler = function(_, duration)
+      return string.format("Silencia o alvo por %s s.", duration)
+    end,
+  })
+
+  self:AddRule({
+    name = "SpellReduceCooldown",
+    description = "Traduz reducao de recarga de habilidade nomeada",
+    category = "Spells",
+    priority = 90,
+    pattern = "^Reduces the cooldown of your (.-) by (%d+) sec%.?$",
+    handler = function(_, spell, duration)
+      return string.format("Reduz em %s s a recarga de %s.", duration, spell)
+    end,
+  })
+
+  self:AddRule({
+    name = "SpellIncreaseNamedDamage",
+    description = "Traduz aumento de dano de habilidade nomeada",
+    category = "Spells",
+    priority = 90,
+    pattern = "^Increases the damage of your (.-) by (%d+)%%%.?$",
+    handler = function(_, spell, amount)
+      return string.format("Aumenta em %s%% o dano de %s.", amount, spell)
+    end,
+  })
+
+  self:AddRule({
+    name = "SpellIncreaseNamedCritical",
+    description = "Traduz aumento de critico de habilidade nomeada",
+    category = "Spells",
+    priority = 90,
+    pattern = "^Increases the critical strike chance of your (.-) by (%d+)%%%.?$",
+    handler = function(_, spell, amount)
+      return string.format("Aumenta em %s%% a chance de acerto critico de %s.", amount, spell)
+    end,
+  })
+
+  self:AddRule({
+    name = "SpellDamageTakenReduction",
+    description = "Traduz reducao de dano recebido",
+    category = "Spells",
+    priority = 90,
+    pattern = "^Reduces damage taken by (%d+)%%%.?$",
+    handler = function(_, amount)
+      return string.format("Reduz o dano recebido em %s%%.", amount)
+    end,
+  })
+
+  self:AddRule({
+    name = "SpellMovementSpeed",
+    description = "Traduz aumento de movimento",
+    category = "Spells",
+    priority = 90,
+    pattern = "^Increases your movement speed by (%d+)%%%.?$",
+    handler = function(_, amount)
+      return string.format("Aumenta sua velocidade de movimento em %s%%.", amount)
+    end,
+  })
+
+  self:AddRule({
+    name = "SpellAttackSpeed",
+    description = "Traduz aumento de ataque",
+    category = "Spells",
+    priority = 90,
+    pattern = "^Increases your attack speed by (%d+)%%%.?$",
+    handler = function(_, amount)
+      return string.format("Aumenta sua velocidade de ataque em %s%%.", amount)
     end,
   })
 

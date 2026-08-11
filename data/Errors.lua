@@ -779,6 +779,7 @@ AscensionPTBR.ErrExact = {
 ["Your ticket text was too long."]="O texto da sua consulta era muito longo.",
 ["Your trade partner has too many of a unique item."]="Seu interlocutor tem demasiadas unidades de um objeto.",
 ["Your weapon hand is empty"]="Não tens nenhuma arma na mão",
+["You must be at least level 80 to enter."]="Você precisa ter pelo menos nível 80 para entrar.",
 }
 AscensionPTBR.ErrPatterns = {
 {"^(.+) has already been invited to an arena team%.$","Já convidaram %1 para uma equipe de areia."},
