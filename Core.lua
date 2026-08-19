@@ -1,5 +1,6 @@
 local APT = AscensionPTBR or {}
 AscensionPTBR = APT
+local Runtime = APT.Runtime
 
 APT.SpellNameEN2PT = APT.SpellNameEN2PT or {}
 APT.NameToIDs      = APT.NameToIDs or {}
@@ -1930,17 +1931,11 @@ local function DiscoverStaticPanelRoots()
     end
 end
 
-local discoveryDriver
 local discoveryPending = false
 local function ScheduleStaticRootDiscovery()
     if discoveryPending then return end
     discoveryPending = true
-    if not discoveryDriver then discoveryDriver = CreateFrame("Frame") end
-    local elapsed = 0
-    discoveryDriver:SetScript("OnUpdate", function(self, dt)
-        elapsed = elapsed + (dt or 0)
-        if elapsed < 0.05 then return end
-        self:SetScript("OnUpdate", nil)
+    Runtime.After("static-root-discovery", 0.05, function()
         discoveryPending = false
         pcall(DiscoverStaticPanelRoots)
     end)
@@ -2940,21 +2935,13 @@ local function TranslateQuestLog()
     TranslateQuestInfo()
 end
 
-local greetDelay
 local function TranslateGreetings()
     TranslateQuestButtons("QuestTitleButton", 32)
     TranslateQuestButtons("GossipTitleButton", 32)
     TranslateTitlesIn(GossipFrame)
     TranslateTitlesIn(QuestFrameGreetingPanel)
 
-    if not greetDelay then
-        greetDelay = CreateFrame("Frame")
-    end
-    local elapsed = 0
-    greetDelay:SetScript("OnUpdate", function(self, dt)
-        elapsed = elapsed + dt
-        if elapsed < 0.3 then return end
-        self:SetScript("OnUpdate", nil)
+    Runtime.After("quest-greetings", 0.3, function()
         TranslateQuestButtons("QuestTitleButton", 32)
         TranslateQuestButtons("GossipTitleButton", 32)
         TranslateTitlesIn(GossipFrame)
@@ -2990,30 +2977,18 @@ local function ReflowQuestPanels()
 end
 APT.ReflowQuestPanels = ReflowQuestPanels
 
-local questDelay
 local function DelayedQuestPass()
-    if not questDelay then
-        questDelay = CreateFrame("Frame")
-    end
     -- O servidor Ascension pode preencher missões customizadas em várias
     -- etapas. Duas tentativas até 1 s não bastavam: o texto definitivo podia
     -- chegar depois e permanecer em inglês. Acompanhamos apenas a janela que
     -- acabou de abrir, em seis instantes curtos, e desligamos o driver em 3 s.
     -- Não existe varredura permanente nem trabalho fora da janela de missão.
-    local schedule = { 0.05, 0.25, 0.60, 1.10, 1.90, 3.00 }
-    local elapsed, shot = 0, 1
-    questDelay:SetScript("OnUpdate", function(self, dt)
-        elapsed = elapsed + dt
-        if elapsed < schedule[shot] then return end
+    Runtime.Sequence("quest-visible-pass", { 0.05, 0.25, 0.60, 1.10, 1.90, 3.00 }, function()
         TranslateQuestInfo()
         TranslateQuestProgress()
         pcall(TranslateQuestLog)
         pcall(ReflowQuestPanels)
         pcall(TranslateQuestItemButtons)
-        shot = shot + 1
-        if not schedule[shot] then
-            self:SetScript("OnUpdate", nil)
-        end
     end)
 end
 
@@ -3045,12 +3020,7 @@ questFrame:RegisterEvent("QUEST_ITEM_UPDATE")
 questFrame:SetScript("OnEvent", function(self, event)
     if not (db and db.quests) then return end
     if event == "QUEST_DETAIL" or event == "QUEST_COMPLETE" then
-        local elapsed = 0
-        local sexer = CreateFrame("Frame")
-        sexer:SetScript("OnUpdate", function(sf, dt)
-            elapsed = elapsed + dt
-            if elapsed < 0.4 then return end
-            sf:SetScript("OnUpdate", nil)
+        Runtime.After("quest-giver-sex", 0.4, function()
             pcall(CaptureGiverSex)
         end)
     end
@@ -3198,7 +3168,6 @@ local function TranslateGossipGreeting()
 end
 APT.TranslateGossipGreeting = TranslateGossipGreeting
 
-local gossipDelay
 local gossipFrame = CreateFrame("Frame")
 gossipFrame:RegisterEvent("GOSSIP_SHOW")
 gossipFrame:RegisterEvent("QUEST_GREETING")
@@ -3206,12 +3175,7 @@ gossipFrame:SetScript("OnEvent", function()
     if not (db and db.gossip) then return end
     TranslateGossipGreeting()
 
-    if not gossipDelay then gossipDelay = CreateFrame("Frame") end
-    local elapsed = 0
-    gossipDelay:SetScript("OnUpdate", function(self, dt)
-        elapsed = elapsed + dt
-        if elapsed < 0.3 then return end
-        self:SetScript("OnUpdate", nil)
+    Runtime.After("gossip-visible-pass", 0.3, function()
         TranslateGossipGreeting()
     end)
 end)
@@ -3536,7 +3500,6 @@ local function WalkUIExact(root, depth, hookFS)
     end
 end
 
-local charDelay
 function APT.TranslateCharacterRoots()
     pcall(WalkUIExact, CharacterFrame)
     pcall(WalkUIExact, PaperDollFrame)
@@ -3547,19 +3510,8 @@ end
 local function TranslateCharacterFrame()
     if not (db and db.ui) then return end
     APT.TranslateCharacterRoots()
-    if not charDelay then
-        charDelay = CreateFrame("Frame")
-    end
-    local elapsed, shots = 0, 0
-    charDelay:SetScript("OnUpdate", function(self, dt)
-        elapsed = elapsed + dt
-        if elapsed < 0.3 then return end
-        elapsed = 0
-        shots = shots + 1
+    Runtime.Sequence("character-visible-pass", { 0.3, 0.6, 0.9 }, function()
         APT.TranslateCharacterRoots()
-        if shots >= 3 then
-            self:SetScript("OnUpdate", nil)
-        end
     end)
 end
 
@@ -3690,16 +3642,8 @@ local function TranslateUnitFrames(unit)
     end
 end
 
-local unitDelay
 local function DelayedUnitPass(unit)
-    if not unitDelay then
-        unitDelay = CreateFrame("Frame")
-    end
-    local elapsed = 0
-    unitDelay:SetScript("OnUpdate", function(self, dt)
-        elapsed = elapsed + dt
-        if elapsed < 0.2 then return end
-        self:SetScript("OnUpdate", nil)
+    Runtime.After("unit-frame-pass", 0.2, function()
         TranslateUnitFrames(unit)
     end)
 end
@@ -3725,7 +3669,6 @@ local CASTBAR_ROOTS = {
     "Quartz3CastBarPet", "QuartzCastBar",
 }
 
-local castDelay
 local function TranslateCastbars(unit)
     if not (db and db.spells) then return end
     local name = UnitCastingInfo and UnitCastingInfo(unit)
@@ -3740,14 +3683,7 @@ local function TranslateCastbars(unit)
 end
 
 local function DelayedCastPass(unit)
-    if not castDelay then
-        castDelay = CreateFrame("Frame")
-    end
-    local elapsed = 0
-    castDelay:SetScript("OnUpdate", function(self, dt)
-        elapsed = elapsed + dt
-        if elapsed < 0.1 then return end
-        self:SetScript("OnUpdate", nil)
+    Runtime.After("castbar-pass", 0.1, function()
         TranslateCastbars(unit)
     end)
 end
@@ -3917,15 +3853,10 @@ frame:SetScript("OnEvent", function(self, event, arg1)
             end
 
             local statsScroll = _G["AscensionCharacterStatsPanelScrollFrame"]
-            local statsPass = CreateFrame("Frame")
             local function OnStatsScroll()
                 if not (db and db.ui) then return end
                 pcall(WalkUIExact, _G["AscensionCharacterStatsPanel"], 0, true)
-                local elapsed = 0
-                statsPass:SetScript("OnUpdate", function(self, dt)
-                    elapsed = elapsed + dt
-                    if elapsed < 0.1 then return end
-                    self:SetScript("OnUpdate", nil)
+                Runtime.After("character-stats-scroll", 0.1, function()
                     pcall(WalkUIExact, _G["AscensionCharacterStatsPanel"], 0, true)
                 end)
             end
@@ -3955,12 +3886,24 @@ frame:SetScript("OnEvent", function(self, event, arg1)
     end
 
     APT.ItemNameEN2PT = {}
+    APT.ItemNamePT2EN = {}
     for id, em in pairs(APT.ItemNameEN or {}) do
         local es = APT.ItemName[id]
         if es and APT.ItemNameEN2PT[em] == nil then
             APT.ItemNameEN2PT[em] = es
         elseif es and APT.ItemNameEN2PT[em] ~= es then
             APT.ItemNameEN2PT[em] = false
+        end
+        if type(es) == "string" and es ~= "" and type(em) == "string" and em ~= "" and es ~= em then
+            local key = es:lower():match("^%s*(.-)%s*$")
+            local current = APT.ItemNamePT2EN[key]
+            if current == nil or current == em then
+                APT.ItemNamePT2EN[key] = em
+            else
+                -- Dois itens com a mesma traducao, mas nomes originais
+                -- diferentes, ficam ambiguos e nao sao convertidos no chute.
+                APT.ItemNamePT2EN[key] = false
+            end
         end
     end
 

@@ -1,5 +1,6 @@
 local AES = AscensionPTBR or {}
 AscensionPTBR = AES
+local Runtime = AES.Runtime
 
 local function TalentEnabled()
     local d = AscensionPTBRDB
@@ -165,7 +166,6 @@ local function HookTalentRoots()
     end
 end
 
-local talentPassTimer
 local talentPassPending = false
 local function TranslateTalentChrome()
     if not TalentEnabled() then return end
@@ -183,14 +183,8 @@ local function DelayedTalentPass()
     if talentPassPending then return end
     talentPassPending = true
     TranslateTalentChrome()
-    if not talentPassTimer then talentPassTimer = CreateFrame("Frame") end
-    local elapsed = 0
-    talentPassTimer:SetScript("OnUpdate", function(self, dt)
-        elapsed = elapsed + (dt or 0)
-        if elapsed < 0.2 then return end
-        elapsed = 0
+    Runtime.After("talent-visible-pass", 0.2, function()
         talentPassPending = false
-        self:SetScript("OnUpdate", nil)
         TranslateTalentChrome()
     end)
 end
