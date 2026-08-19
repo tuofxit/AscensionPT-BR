@@ -4,7 +4,7 @@
 
 ### Project Ascension em Português do Brasil
 
-![Versão](https://img.shields.io/badge/versão-1.3.13-33ff99)
+![Versão](https://img.shields.io/badge/versão-1.4.54-33ff99)
 ![Idioma](https://img.shields.io/badge/idioma-PT--BR-009c3b)
 ![Cliente](https://img.shields.io/badge/cliente-3.3.5a-d4af37)
 ![Projeto](https://img.shields.io/badge/projeto-comunitário-blue)
@@ -18,6 +18,8 @@ Uma localização feita para que jogadores brasileiros entendam o conteúdo do j
 O **AscensionPTBR** é um addon comunitário mantido por **Tuofxit**. Ele traduz para português brasileiro os textos que ajudam o jogador a entender sistemas, objetivos e efeitos durante a partida.
 
 A proposta é oferecer uma tradução natural, legível e estável. O addon atua quando o conteúdo é exibido, reduzindo processamento desnecessário, e preserva identificadores internos importantes para não quebrar a interface.
+
+Esta versão pública utiliza apenas traduções de missões já cadastradas e revisadas. O tradutor automático experimental de missões não está incluído enquanto o protótipo ainda estiver em validação.
 
 ### O que é traduzido
 

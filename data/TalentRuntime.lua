@@ -28,12 +28,70 @@ local function TranslateTalentDescriptionText(text)
     return AES.TranslateDescriptionString and AES.TranslateDescriptionString(text) or nil
 end
 
+-- Alguns nomes chegavam pretraduzidos pelo dicionario de UI do servidor antes
+-- deste modulo receber o texto. Indexamos somente essas tabelas de interface e
+-- restauramos o nome ingles no painel, sem tocar no corpo das descricoes.
+local talentSpellPT2EN
+local function CleanTalentLabel(text)
+    if type(text) ~= "string" then return nil end
+    return text:gsub("|c%x%x%x%x%x%x%x%x", ""):gsub("|r", "")
+        :gsub("^%s+", ""):gsub("%s+$", "")
+end
+
+local function GetTalentSpellPT2EN()
+    if talentSpellPT2EN then return talentSpellPT2EN end
+    talentSpellPT2EN = {}
+    -- RuntimeCorrections captura as variantes que eram traduzidas antes de
+    -- neutralizar os nomes. Elas precisam ser conhecidas aqui porque alguns
+    -- paineis do servidor conservam o texto antigo ate serem redesenhados.
+    for translated, source in pairs(AES.SpellNamePT2EN or {}) do
+        if type(translated) == "string" and type(source) == "string" then
+            talentSpellPT2EN[translated] = source
+        end
+    end
+    local function add(source, translated)
+        if type(source) ~= "string" or type(translated) ~= "string" then return end
+        local en = CleanTalentLabel(source)
+        local pt = CleanTalentLabel(translated)
+        en = en and en:match("^([^\n]+)")
+        pt = pt and pt:match("^([^\n]+)")
+        if en and pt and AES.NameToIDs and AES.NameToIDs[en] and not talentSpellPT2EN[pt] then
+            talentSpellPT2EN[pt] = en
+        end
+    end
+    for _, dictionary in ipairs({ AES.ServerUI, AES.TalentUIExact, AES.CustomUI }) do
+        for source, translated in pairs(dictionary or {}) do add(source, translated) end
+    end
+    return talentSpellPT2EN
+end
+
+local function RestoreTalentSpellName(text)
+    if AES.RestoreOriginalSpellNameText then
+        local restored = AES.RestoreOriginalSpellNameText(text)
+        if restored and restored ~= text then return restored end
+    end
+    local plain = CleanTalentLabel(text)
+    if not plain then return nil end
+    local reverse = GetTalentSpellPT2EN()
+    local direct = reverse[plain]
+    if direct then return direct end
+    local title, detail = plain:match("^([^\n]+)\n(.+)$")
+    if title and detail and reverse[title]
+        and detail:match("^%s*([Nn][ií]vel|[Gg]rau|[Ll]evel|[Rr]ank)%s+%d+") then
+        return reverse[title] .. "\n" .. detail
+    end
+    return nil
+end
+
 local function TranslateTalentUIText(text)
     if not TalentEnabled() or type(text) ~= "string" or text == "" then return nil end
+    local restored = RestoreTalentSpellName(text)
+    if restored and restored ~= text then return restored end
+    -- Esta tela mistura nomes e descricoes no mesmo fluxo. Nomes exatos (ou
+    -- nome + nivel) nunca devem ser localizados; apenas o corpo explicativo.
+    if AES.IsOriginalSpellName and AES.IsOriginalSpellName(text) then return nil end
     local exact = AES.TalentUIExact and AES.TalentUIExact[text]
     if exact and exact ~= text then return exact end
-    local spell = AES.SpellNameEN2ES and AES.SpellNameEN2ES[text]
-    if spell and spell ~= text then return spell end
     local static = AES.TranslateStaticText and AES.TranslateStaticText(text)
     if static and static ~= text then return static end
     return TranslateTalentDescriptionText(text)
@@ -150,49 +208,13 @@ talentEventFrame:SetScript("OnEvent", function()
     DelayedTalentPass()
 end)
 
--- APIs usadas por diferentes versões do painel customizado do Ascension.
--- Somente valores de texto retornados são alterados; IDs, números e tabelas
--- permanecem exatamente como o servidor os forneceu.
-local talentAPIWrapped = setmetatable({}, { __mode = "k" })
-local function PackTalentResults(...)
-    return { n = select("#", ...), ... }
-end
-local function WrapTalentStringAPI(api, names)
-    if type(api) ~= "table" then return end
-    for _, fname in ipairs(names) do
-        local wrapped = talentAPIWrapped[api]
-        if not wrapped then wrapped = {}; talentAPIWrapped[api] = wrapped end
-        local orig = api[fname]
-        if type(orig) == "function" and not wrapped[fname] then
-            wrapped[fname] = true
-            local ok = pcall(function()
-                api[fname] = function(...)
-                    if not TalentEnabled() then return orig(...) end
-                    local a, b, c, d, e, f, g, h = orig(...)
-                    if type(a) == "string" then a = TranslateTalentUIText(a) or a end
-                    if type(b) == "string" then b = TranslateTalentUIText(b) or b end
-                    if type(c) == "string" then c = TranslateTalentUIText(c) or c end
-                    if type(d) == "string" then d = TranslateTalentUIText(d) or d end
-                    if type(e) == "string" then e = TranslateTalentUIText(e) or e end
-                    if type(f) == "string" then f = TranslateTalentUIText(f) or f end
-                    if type(g) == "string" then g = TranslateTalentUIText(g) or g end
-                    if type(h) == "string" then h = TranslateTalentUIText(h) or h end
-                    return a, b, c, d, e, f, g, h
-                end
-            end)
-            if not ok then wrapped[fname] = nil end
-        end
-    end
-end
+-- Nunca envolva as APIs de dados do Character Advancement. Alguns servidores
+-- usam as strings retornadas como chaves internas de filtro e de disponibilidade;
+-- localiza-las aqui pode esconder habilidades da lista. A camada visual acima e
+-- os hooks de tooltip do Core traduzem somente a descricao que o jogador abriu,
+-- preservando integralmente nomes, campos e resultados fornecidos pelo servidor.
 HookTalentAPIs = function()
-    WrapTalentStringAPI(_G.C_CharacterAdvancement, {
-        "GetEntryInfo", "GetTalentInfo", "GetTreeInfo", "GetClassInfo",
-        "GetRaceInfo", "GetRacialInfo", "GetSpecializationInfo", "GetArchetypeInfo",
-    })
-    WrapTalentStringAPI(_G.C_Ascension, {
-        "GetTalentInfo", "GetClassTalentInfo", "GetRacialTalentInfo",
-        "GetSpecializationInfo", "GetMentorSpecializationInfo",
-    })
+    -- Intencionalmente vazio: somente a interface visivel e traduzida.
 end
 AES.HookTalentAPIs = HookTalentAPIs
 HookTalentAPIs()

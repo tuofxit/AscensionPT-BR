@@ -36721,7 +36721,7 @@ local I={
 ["zooms the camera out to the nearest fel"]={9168},
 }
 
- for k,v in pairs(I) do
+for k,v in pairs(I) do
   local t=X[k]
   if t then for _,n in ipairs(v) do t[#t+1]=b+n end
   else local nt={} for j,n in ipairs(v) do nt[j]=b+n end X[k]=nt end

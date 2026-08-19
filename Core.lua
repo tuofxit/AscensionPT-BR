@@ -57,7 +57,6 @@ end
 local function TranslateValue(v)
     local w = APT.ValueWords
     if w[v] then return w[v] end
-    if APT.SpellNameEN2PT[v] then return APT.SpellNameEN2PT[v] end
     local num, word = v:match("^([%d%.,]+) (.+)$")
     if num and w[word] then return num .. " " .. w[word] end
     return v
@@ -319,15 +318,8 @@ local function TranslateMultilineText(text)
         end
         local key = (inner ~= "" and APT.SpellNameEN2PT[inner]) and inner
             or (nm and APT.SpellNameEN2PT[nm]) and nm or nil
-        if key then
-            local es = APT.SpellNameEN2PT[key]
-            if key == inner then
-                l = (icon or "") .. (pre or "") .. c1 .. es .. c2 .. (post or "")
-            else
-                l = (icon or "") .. (pre or "") .. es .. (post or "")
-            end
-            touched = true
-        end
+        -- O nome serve apenas para escolher a descricao pelo ID. Ele nunca e
+        -- reescrito: nomes de habilidades ficam em ingles em toda a UI.
         local ctxKey = (inner ~= "" and APT.NameToIDs[inner] and inner)
             or (nm and APT.NameToIDs[nm] and nm) or nil
         if ctxKey then
@@ -456,6 +448,13 @@ local function TranslateTooltipLines(tip)
     local tipName = tip:GetName()
     local first = _G[tipName .. "TextLeft1"]
     local firstText = first and first:GetText()
+    if firstText and APT.RestoreOriginalSpellNameText then
+        local restored = APT.RestoreOriginalSpellNameText(firstText)
+        if restored and restored ~= firstText then
+            pcall(first.SetText, first, restored)
+            firstText = restored
+        end
+    end
     local spellTitle = tip.GetSpell and tip:GetSpell()
     local firstQuestText = (not spellTitle) and firstText and TranslateQuestTooltipText(firstText)
     if firstQuestText then pcall(first.SetText, first, firstQuestText) end
@@ -475,6 +474,19 @@ local function TranslateTooltipLines(tip)
         if text and text ~= "" then
             local isSpellTitle = fs == first and spellTitle
             local changed = isSpellTitle and true or false
+
+            -- Algumas janelas customizadas nao implementam GetSpell e usam um
+            -- FontString comum para o titulo. Restaure-o antes dos dicionarios
+            -- de interface; se o mesmo campo tambem contiver o corpo, ele segue
+            -- para o tradutor de descricoes abaixo.
+            if APT.RestoreOriginalSpellNameText then
+                local restored = APT.RestoreOriginalSpellNameText(text)
+                if restored and restored ~= text then
+                    pcall(fs.SetText, fs, restored)
+                    text = restored
+                    if not text:find("\n", 1, true) then changed = true end
+                end
+            end
 
             local questText = TranslateQuestTooltipText(text)
             if questText then
@@ -513,13 +525,15 @@ local function TranslateTooltipLines(tip)
 
                 local esCustom = db.ui and APT.CustomUI and plainName and APT.CustomUI[plainName]
                 local esName = plainName and APT.SpellNameEN2PT[plainName]
-                if esCustom then
-                    pcall(fs.SetText, fs, (icon or "") .. (pre or "") .. esCustom .. (post or ""))
-                    changed = true
-                elseif esName then
-                    pcall(fs.SetText, fs, (icon or "") .. (pre or "") .. esName .. (post or ""))
+                -- Nomes de habilidades permanecem no idioma original. Ainda
+                -- guardamos o contexto do nome para localizar e traduzir sua
+                -- descricao, mas nunca reescrevemos o titulo do tooltip.
+                if esName then
                     contextIds = APT.NameToIDs[plainName]
                     if contextIds then contexts[#contexts + 1] = contextIds end
+                    changed = true
+                elseif esCustom then
+                    pcall(fs.SetText, fs, (icon or "") .. (pre or "") .. esCustom .. (post or ""))
                     changed = true
                 elseif plainName and APT.NameToIDs[plainName] then
                     contextIds = APT.NameToIDs[plainName]
@@ -830,6 +844,12 @@ APT.TranslateRuntimeSpellBody = function(tip, spellID, englishName)
         local title = _G[name .. "TextLeft1"]
         englishName = title and title:GetText()
     end
+    -- Paineis customizados podem entregar o titulo ja localizado pelas tabelas
+    -- internas do servidor. Recupere o nome original antes de consultar IDs;
+    -- sem isso o corpo correto existe na base, mas nunca e encontrado.
+    if englishName and APT.ResolveOriginalSpellName then
+        englishName = APT.ResolveOriginalSpellName(englishName) or englishName
+    end
     local lines, fields = {}, {}
     for i = 3, tip:NumLines() do
         local fs = _G[name .. "TextLeft" .. i]
@@ -861,6 +881,16 @@ local function OnSpellTooltip(tip)
     local name = tip:GetName()
     local L1 = _G[name .. "TextLeft1"]
     local enName = L1 and L1:GetText()
+    if enName and APT.RestoreOriginalSpellNameText then
+        local restored = APT.RestoreOriginalSpellNameText(enName)
+        if restored and restored ~= enName then
+            L1:SetText(restored)
+            enName = restored
+        end
+    end
+    if enName and APT.ResolveOriginalSpellName then
+        enName = APT.ResolveOriginalSpellName(enName) or enName
+    end
 
     local L2 = _G[name .. "TextLeft2"]
     local rankText = L2 and L2:GetText()
@@ -1031,9 +1061,8 @@ local function TranslateAscensionSpellButtons()
         local b = spells["SpellButton" .. i]
         if b then
             local fs = b.SpellName
-            local t = fs and fs:GetText()
-            local es = t and APT.SpellNameEN2PT[t]
-            if es then fs:SetText(es) end
+            -- A lista do livro deve manter o nome original da habilidade.
+            -- Nao alterar SpellName aqui; apenas o subtitulo/rank pode ser PT-BR.
             local sub = b.SubSpellName
             local st = sub and sub:GetText()
             if st and st ~= "" then
@@ -1074,6 +1103,18 @@ APT.RepairSpellbookTooltipText = function(text)
     repaired = repaired:gsub("Dark Apotheosis nao pode usar escudo%.", "Dark Apotheosis: sem escudo.")
     repaired = repaired:gsub("Escudos nao podem ser equipados durante a transformacao%.", "Nao equipa escudos transformado.")
     repaired = repaired:gsub("Ataca duas vezes, causando ([%d%.,]+) de dano Fisico por golpe%.", "Ataca 2 vezes: %1 de dano Fisico cada.")
+    -- Regras de descricoes customizadas. Elas sao executadas em lote somente
+    -- quando o jogador abre ou passa o mouse por um tooltip, portanto nao
+    -- adicionam uma traducao global continua nem consumo de FPS em combate.
+    local customPatterns = APT.CustomDescriptionPatterns
+    if type(customPatterns) == "table" then
+        for _, rule in ipairs(customPatterns) do
+            local source, replacement = rule[1], rule[2]
+            if type(source) == "string" and type(replacement) == "string" then
+                repaired = repaired:gsub(source, replacement)
+            end
+        end
+    end
     if repaired ~= text then return repaired end
     -- Tooltips customizados frequentemente acrescentam um rodape depois do
     -- corpo (SHIFT, modificadores, etc.). Retira-o apenas para a busca e o
@@ -1140,11 +1181,22 @@ APT.ScanSpellbookTooltips = function()
                 if wholeTranslated then break end
             end
             if not wholeTranslated then
+                -- Guarda tambem o bloco integral que ainda contenha ingles.
+                -- Assim, uma descricao parcialmente traduzida nao some da fila
+                -- de revisao em massa quando o jogador encerrar o jogo.
+                if APT.RecordUnknownSpellDescription and #texts > 1 then
+                    APT.RecordUnknownSpellDescription(table.concat(texts, "\n"))
+                end
                 for _, region in ipairs(fields) do
                     local original = region:GetText()
                     local repaired = APT.RepairSpellbookTooltipText(original)
                     if repaired then
                         pcall(region.SetText, region, repaired)
+                        -- Mesmo uma traducao parcial entra na fila; o original
+                        -- fica salvo para receber uma regra completa no lote.
+                        if APT.RecordUnknownSpellDescription then
+                            APT.RecordUnknownSpellDescription(original)
+                        end
                     elseif APT.RecordUnknownSpellDescription then
                         APT.RecordUnknownSpellDescription(original)
                     end
@@ -1179,7 +1231,11 @@ APT.RecordUnknownSpellDescription = function(text)
     if not (lower:find(" damage", 1, true) or lower:find(" target", 1, true)
         or lower:find(" enemy", 1, true) or lower:find(" your ", 1, true)
         or lower:find(" dealing", 1, true) or lower:find(" causing", 1, true)
-        or lower:find(" granting", 1, true) or lower:find(" increases", 1, true)) then return end
+        or lower:find(" granting", 1, true) or lower:find(" increases", 1, true)
+        or lower:find(" reduces", 1, true) or lower:find(" healing", 1, true)
+        or lower:find(" casting", 1, true) or lower:find(" effect", 1, true)
+        or lower:find(" chance", 1, true) or lower:find(" cooldown", 1, true)
+        or lower:find(" lasts ", 1, true) or lower:find(" for ", 1, true)) then return end
     db.UntranslatedSpellDescriptions = db.UntranslatedSpellDescriptions or {}
     if db.UntranslatedSpellDescriptions[text] then return end
     if (db.UntranslatedSpellDescriptionCount or 0) >= 12000 then return end
@@ -1288,6 +1344,10 @@ local function ApplyUIStrings()
         "REPLY_MESSAGE",
         "LANGUAGE",
         "VOICEMACRO_LABEL",
+        "TIMEMANAGER_TOOLTIP_TITLE",
+        "TIMEMANAGER_TOOLTIP_REALMTIME",
+        "TIMEMANAGER_TOOLTIP_LOCALTIME",
+        "GAMETIME_TOOLTIP_TOGGLE_CLOCK",
     }
     local applied = 0
     for _, key in ipairs(stableGlobals) do
@@ -1345,6 +1405,26 @@ local staticTextCacheSize = 0
 local STATIC_TEXT_CACHE_LIMIT = 4096
 
 local function TranslateStaticTextUncached(t)
+    -- Listas de cartas/talentos chegam como textos estaticos. Se a linha for
+    -- exatamente o nome de uma habilidade, ela deve continuar em ingles antes
+    -- de qualquer dicionario de interface tentar substitui-la.
+    local restoredSpellName = APT.RestoreOriginalSpellNameText
+        and APT.RestoreOriginalSpellNameText(t)
+    if restoredSpellName and restoredSpellName ~= t then
+        return restoredSpellName
+    end
+    local plainSpellName = NormalizeStaticKey(t)
+    if plainSpellName and APT.SpellNameEN2PT and APT.SpellNameEN2PT[plainSpellName] then
+        return nil
+    end
+    -- Alguns paineis enviam "nome\nLevel/Rank" no mesmo FontString. Isso e
+    -- cabecalho de habilidade, nao uma descricao; preserve o nome em ingles.
+    local titleLine, detailLine = plainSpellName and plainSpellName:match("^([^\n]+)\n(.+)$")
+    if titleLine and detailLine and APT.SpellNameEN2PT and APT.SpellNameEN2PT[titleLine]
+        and detailLine:match("^%s*[Ll]evel%s+%d+") then
+        return nil
+    end
+
     local es = (APT.TalentUIExact and APT.TalentUIExact[t])
         or (APT.CustomUI and APT.CustomUI[t])
         or (APT.ServerUI and APT.ServerUI[t])
@@ -1371,6 +1451,19 @@ local function TranslateStaticTextUncached(t)
 
     local p1, p2 = t:match("^Page (%d+) of (%d+)$")
     if p1 then return "Página " .. p1 .. " de " .. p2 end
+
+    -- As Cartas de Perícia montam o nível dinamicamente e, em alguns
+    -- servidores, inserem uma quebra de linha. A forma curta cabe no cartão
+    -- estreito sem alterar o nome da habilidade exibida ao lado.
+    local unlockPlain = NormalizeStaticKey(t)
+    local unlockLevel, unlockPlus
+    if unlockPlain then
+        unlockLevel, unlockPlus = unlockPlain:match(
+            "^Unlocks at level:?%s*(%d+)(%+?)%.?$")
+    end
+    if unlockLevel then
+        return "Libera no nível:\n" .. unlockLevel .. (unlockPlus or "")
+    end
 
     local trialLevelPlain = NormalizeStaticKey(t)
     local currentTrialLevel = trialLevelPlain and trialLevelPlain:match("^Current Level:%s*(%d+)$")
@@ -1421,12 +1514,29 @@ local function TranslateStaticTextUncached(t)
         return result
     end
 
-    if db and db.spells and APT.SpellNameEN2PT and #t >= 4 and t:match("^%u") then
-        local esSpell = APT.SpellNameEN2PT[t]
-        if esSpell and esSpell ~= t then return esSpell end
-    end
+    -- Nomes de habilidades nunca sao traduzidos por este caminho generico.
+    -- As descricoes passam pelos pares e regras de tooltip separadamente.
 
     return nil
+end
+
+-- Um nome isolado de habilidade nunca deve passar pelos tradutores de UI ou
+-- pelos padroes genericos. Algumas telas customizadas usam FontStrings comuns
+-- e, sem esta trava central, um segundo hook voltava a converter o nome.
+APT.IsOriginalSpellName = function(text)
+    if type(text) ~= "string" or text == "" then return false end
+    local plain = NormalizeStaticKey(text)
+    if not plain then return false end
+    plain = plain:gsub("|T.-|t", ""):gsub("^%s+", ""):gsub("%s+$", "")
+    local map = APT.SpellNameEN2PT
+    if map and map[plain] then return true end
+    local titleLine, detailLine = plain:match("^([^\n]+)\n(.+)$")
+    if titleLine and detailLine and map and map[titleLine]
+        and detailLine:match("^%s*[Ll]evel%s+%d+") then
+        return true
+    end
+    local base = plain:match("^(.-)%s*%([Rr]ank%s+%d+%)$")
+    return base and map and map[base] and true or false
 end
 
 -- O corpo inteiro de um tooltip nunca pode usar a busca parcial de MatchPair:
@@ -2194,6 +2304,7 @@ HookFSForTranslation = function(fs)
     hookedFontStrings[fs] = true
     hooksecurefunc(fs, "SetText", function(self, txt)
         if inAPTSet or not db or type(txt) ~= "string" or txt == "" then return end
+        if APT.IsOriginalSpellName and APT.IsOriginalSpellName(txt) then return end
         local translated = TranslateStaticText(txt)
             or (db.patterns and MatchLinePatterns(txt))
         if not translated and APT.TranslateSystemTextStrict and not txt:find("\n") then
@@ -2215,6 +2326,78 @@ HookFSForTranslation = function(fs)
     end)
 end
 
+-- Tooltips dos atributos são reconstruídos pelo painel do Ascension. Os
+-- ganchos abaixo só atuam quando o dono do tooltip pertence à ficha do
+-- personagem; assim, nomes de habilidades e itens continuam em inglês.
+APT._CharacterStatFSHooks = APT._CharacterStatFSHooks
+    or setmetatable({}, { __mode = "k" })
+APT._CharacterStatFSBusy = false
+
+function APT.IsCharacterPanelObject(object)
+    local depth = 0
+    while object and depth < 14 do
+        local name = object.GetName and object:GetName()
+        if name and (name == "CharacterFrame"
+            or name == "PaperDollFrame"
+            or name == "AscensionCharacterFrame"
+            or name:find("AscensionCharacterStatsPanel", 1, true)) then
+            return true
+        end
+        object = object.GetParent and object:GetParent()
+        depth = depth + 1
+    end
+    return false
+end
+
+function APT.TranslateCharacterStatFontString(fs)
+    if APT._CharacterStatFSBusy or not (db and db.ui)
+        or not (fs and fs.GetText and fs.SetText)
+        or not APT.TranslateCharacterStatLine then return end
+
+    local parent = fs.GetParent and fs:GetParent()
+    local owner = parent and parent.GetOwner and parent:GetOwner()
+    if not APT.IsCharacterPanelObject(owner) then return end
+
+    local current = fs:GetText()
+    local translated = current and APT.TranslateCharacterStatLine(current)
+    if translated and translated ~= current then
+        APT._CharacterStatFSBusy = true
+        pcall(fs.SetText, fs, translated)
+        APT._CharacterStatFSBusy = false
+        EnsureReadablePTBRFont(fs, translated)
+    end
+end
+
+function APT.HookCharacterStatFontString(fs)
+    if not (fs and fs.SetText) or APT._CharacterStatFSHooks[fs] then return end
+    APT._CharacterStatFSHooks[fs] = true
+    for _, method in ipairs({ "SetText", "SetFormattedText" }) do
+        if type(fs[method]) == "function" then
+            pcall(hooksecurefunc, fs, method, function(self)
+                APT.TranslateCharacterStatFontString(self)
+            end)
+        end
+    end
+end
+
+function APT.TranslateCharacterStatTooltip(tip)
+    if not (db and db.ui and tip and tip.GetName and tip.NumLines)
+        or not APT.TranslateCharacterStatLine then return end
+    local owner = tip.GetOwner and tip:GetOwner()
+    if not APT.IsCharacterPanelObject(owner) then return end
+    local name = tip:GetName()
+    if not name then return end
+    for index = 1, tip:NumLines() do
+        for _, side in ipairs({ "TextLeft", "TextRight" }) do
+            local fs = _G[name .. side .. index]
+            if fs then
+                APT.HookCharacterStatFontString(fs)
+                APT.TranslateCharacterStatFontString(fs)
+            end
+        end
+    end
+end
+
 local function HookTooltip(tip)
     if not tip then return end
 
@@ -2231,6 +2414,9 @@ local function HookTooltip(tip)
     if tip:HasScript("OnShow") then
         tip:HookScript("OnShow", function(t)
             if not db then return end
+            if db.ui and APT.TranslateCharacterStatTooltip then
+                pcall(APT.TranslateCharacterStatTooltip, t)
+            end
             if db.spells then APT.TranslateRuntimeSpellBody(t) end
             if db.spells and APT.StartVisibleTooltipRepair then APT.StartVisibleTooltipRepair() end
             pcall(TranslateTooltipLines, t)
@@ -2390,7 +2576,8 @@ end
 
 local function LookupQuestTitlePT(title)
     if type(title) ~= "string" or title == "" then return nil end
-    local exact = APT.QuestTitleEN2PT and APT.QuestTitleEN2PT[title]
+    local exact = (APT.QuestTitleEN2PT and APT.QuestTitleEN2PT[title])
+        or (APT.QuestTextEN2PT and APT.QuestTextEN2PT[title])
     if exact and exact ~= false then return exact end
     local key = QuestTitleKey(title)
     local translated = key and APT.QuestTitleEN2PTByKey and APT.QuestTitleEN2PTByKey[key]
@@ -2412,7 +2599,7 @@ local function QuestLogSelectedID()
     -- Different 3.x clients expose questID in position 8 or 9.
     for _, position in ipairs({ 9, 8 }) do
         local id = tonumber(info[position])
-        if id and id > 0 and APT.QuestData and APT.QuestData[id] then return id end
+        if id and id > 0 then return id end
     end
     return LookupQuestIDByTitle(info[1])
 end
@@ -2549,10 +2736,15 @@ local QUEST_INFO_OBJECTIVE_FIELDS = { "QuestInfoObjectivesText", "QuestLogObject
 local QUEST_INFO_REWARD_FIELDS = { "QuestInfoRewardText", "QuestLogRewardText" }
 
 local function FirstQuestFontString(names)
+    local fallback
     for _, name in ipairs(names) do
         local fs = _G[name]
-        if fs and fs.GetText then return fs end
+        if fs and fs.GetText then
+            fallback = fallback or fs
+            if not fs.IsVisible or fs:IsVisible() then return fs end
+        end
     end
+    return fallback
 end
 
 local function QuestGuardSetFields(names, es, em, variants)
@@ -2561,9 +2753,12 @@ local function QuestGuardSetFields(names, es, em, variants)
     end
 end
 
--- Missões novas do servidor podem aparecer antes de seus IDs entrarem no banco
--- local. Para esses casos, aplicamos somente substituições exatas cadastradas em
--- Corrections.lua. Isso mantém o custo constante e evita traduções parciais.
+-- Mantido apenas para compatibilidade interna. A tradução sob demanda não
+-- captura nem salva missões desconhecidas nas SavedVariables.
+APT.CaptureUnknownQuest = function() end
+
+-- A versão pública usa somente traduções exatas já cadastradas e revisadas.
+-- O tradutor automático experimental de missões permanece fora desta versão.
 local function TranslateKnownQuestText()
     local exact = APT.QuestTextEN2PT
     if type(exact) ~= "table" then return end
@@ -2572,8 +2767,8 @@ local function TranslateKnownQuestText()
         local translated = exact[text]
         if translated then return translated end
 
-        -- O servidor pode variar apenas quebras de linha/espaços entre builds.
-        -- A comparação continua exigindo que todo o conteúdo seja igual.
+        -- Algumas versões do servidor alteram apenas espaços e quebras de
+        -- linha. A comparação ainda exige o texto completo cadastrado.
         local normalized = CollapseWS(text)
         for source, candidate in pairs(exact) do
             if type(source) == "string" and CollapseWS(source) == normalized then
@@ -2587,6 +2782,8 @@ local function TranslateKnownQuestText()
         QUEST_INFO_DESCRIPTION_FIELDS,
         QUEST_INFO_OBJECTIVE_FIELDS,
         QUEST_INFO_REWARD_FIELDS,
+        { "QuestProgressTitleText" },
+        { "QuestProgressText" },
     }
     for _, names in ipairs(groups) do
         for _, name in ipairs(names) do
@@ -2611,35 +2808,22 @@ local function TranslateQuestInfo()
     id = tonumber(id)
 
     local titleFS = FirstQuestFontString(QUEST_INFO_TITLE_FIELDS)
-    if titleFS then
-        local t = titleFS:GetText()
-        local es = LookupQuestTitlePT(t)
-        if es then pcall(titleFS.SetText, titleFS, es) end
-        if (not id or id == 0) then id = LookupQuestIDByTitle(t) end
-    end
+    local rawTitle = titleFS and titleFS:GetText()
+    if titleFS and (not id or id == 0) then id = LookupQuestIDByTitle(rawTitle) end
     if (not id or id == 0) and titleFS then
-        local t = titleFS:GetText()
-        if t then
-            id = LookupQuestIDByTitle(t)
+        if rawTitle then
+            id = LookupQuestIDByTitle(rawTitle)
 
-            if not id then id = ResolveQuestIDByPanels(t) end
+            if not id then id = ResolveQuestIDByPanels(rawTitle) end
         end
+    end
+    APT.CaptureUnknownQuest(id, rawTitle)
+    if titleFS and rawTitle then
+        local es = LookupQuestTitlePT(rawTitle)
+        if es then pcall(titleFS.SetText, titleFS, es) end
     end
     TranslateKnownQuestText()
     if not id or id == 0 then
-
-        if db.capture and _G["QuestInfoTitleHeader"] then
-            local t = _G["QuestInfoTitleHeader"].GetText and _G["QuestInfoTitleHeader"]:GetText()
-            if t and t ~= "" then
-                db.qcaptured = db.qcaptured or {}
-                local dFS = _G["QuestInfoDescriptionText"]
-                local oFS = _G["QuestInfoObjectivesText"]
-                db.qcaptured[t] = {
-                    d = dFS and dFS.GetText and dFS:GetText() or nil,
-                    o = oFS and oFS.GetText and oFS:GetText() or nil,
-                }
-            end
-        end
         return
     end
     local es_t = APT.QuestTitle[id]
@@ -2694,8 +2878,10 @@ end
 local function TranslateQuestProgress()
     if not (db and db.quests) then return end
     local id = GetQuestID and tonumber(GetQuestID())
-    if (not id or id == 0) and _G["QuestProgressTitleText"] then
-        local t = _G["QuestProgressTitleText"].GetText and _G["QuestProgressTitleText"]:GetText()
+    local progressTitle = _G["QuestProgressTitleText"]
+    local rawProgressTitle = progressTitle and progressTitle.GetText and progressTitle:GetText()
+    if (not id or id == 0) and rawProgressTitle then
+        local t = rawProgressTitle
         if t then
             local es = LookupQuestTitlePT(t)
             if es then pcall(_G["QuestProgressTitleText"].SetText, _G["QuestProgressTitleText"], es) end
@@ -2704,6 +2890,8 @@ local function TranslateQuestProgress()
             if not id then id = ResolveQuestIDByPanels(t) end
         end
     end
+    APT.CaptureUnknownQuest(id, rawProgressTitle)
+    TranslateKnownQuestText()
     if not id or id == 0 then return end
     local es_t = APT.QuestTitle[id]
     if es_t then
@@ -2807,19 +2995,23 @@ local function DelayedQuestPass()
     if not questDelay then
         questDelay = CreateFrame("Frame")
     end
-    local elapsed, shots = 0, 0
+    -- O servidor Ascension pode preencher missões customizadas em várias
+    -- etapas. Duas tentativas até 1 s não bastavam: o texto definitivo podia
+    -- chegar depois e permanecer em inglês. Acompanhamos apenas a janela que
+    -- acabou de abrir, em seis instantes curtos, e desligamos o driver em 3 s.
+    -- Não existe varredura permanente nem trabalho fora da janela de missão.
+    local schedule = { 0.05, 0.25, 0.60, 1.10, 1.90, 3.00 }
+    local elapsed, shot = 0, 1
     questDelay:SetScript("OnUpdate", function(self, dt)
         elapsed = elapsed + dt
-        if (shots == 0 and elapsed < 0.3) or (shots == 1 and elapsed < 1.0) then
-            return
-        end
-        shots = shots + 1
+        if elapsed < schedule[shot] then return end
         TranslateQuestInfo()
         TranslateQuestProgress()
         pcall(TranslateQuestLog)
         pcall(ReflowQuestPanels)
         pcall(TranslateQuestItemButtons)
-        if shots >= 2 then
+        shot = shot + 1
+        if not schedule[shot] then
             self:SetScript("OnUpdate", nil)
         end
     end)
@@ -2877,6 +3069,17 @@ questFrame:SetScript("OnEvent", function(self, event)
         DelayedQuestPass()
     end
 end)
+
+-- Alguns painéis customizados são mostrados sem repetir QUEST_DETAIL. O OnShow
+-- inicia a mesma janela curta de tradução e cobre esses casos sem polling.
+for _, panelName in ipairs({
+    "QuestFrameDetailPanel", "QuestFrameProgressPanel", "QuestFrameRewardPanel",
+}) do
+    local panel = _G[panelName]
+    if panel and panel.HookScript then
+        panel:HookScript("OnShow", DelayedQuestPass)
+    end
+end
 if type(QuestInfo_Display) == "function" then
     hooksecurefunc("QuestInfo_Display", TranslateQuestInfo)
 end
@@ -3261,29 +3464,89 @@ function HookUIFS(fs)
     end
 end
 
-local function WalkUIExact(root, depth, hookFS)
-    if not (root and root.GetRegions and root.GetChildren) then return end
-    depth = depth or 0
-    if depth > 7 then return end
-    for _, r in ipairs({ root:GetRegions() }) do
-        if r.IsObjectType and r:IsObjectType("FontString") then
-            local t = r.GetText and r:GetText()
-            local es = t and (TranslateStaticText(t) or (db and db.patterns and MatchLinePatterns(t)))
-            if es then pcall(r.SetText, r, es) end
-            if hookFS then pcall(HookUIFS, r) end
+-- Vários títulos do painel de atributos também são nomes de feitiços
+-- ("Spell", "Defense", "Arcane Resistance" etc.). A proteção global de nomes
+-- de habilidade deve continuar ativa, então esses rótulos só são liberados
+-- dentro do painel de personagem, onde sabemos que representam estatísticas.
+APT._CharacterUIFSHooked = APT._CharacterUIFSHooked
+    or setmetatable({}, { __mode = "k" })
+APT._InCharacterUIFSHook = false
+function APT.CharacterLabelTranslation(text)
+    if type(text) ~= "string" or text == "" then return nil end
+    local direct = (APT.CustomUI and APT.CustomUI[text])
+        or (APT.CharacterStatExact and APT.CharacterStatExact[text])
+    if direct then return direct end
+    local base = text:match("^(.-)%s*:%s*$")
+    local translated = base and ((APT.CustomUI and APT.CustomUI[base])
+        or (APT.CharacterStatExact and APT.CharacterStatExact[base]))
+    if translated then return translated .. ":" end
+    return nil
+end
+
+function APT.HookCharacterUIFS(fs)
+    if APT._CharacterUIFSHooked[fs] or not (fs and fs.SetText) then return end
+    APT._CharacterUIFSHooked[fs] = true
+    for _, method in ipairs({ "SetText", "SetFormattedText" }) do
+        if type(fs[method]) == "function" then
+            pcall(hooksecurefunc, fs, method, function(self)
+                if APT._InCharacterUIFSHook or not (db and db.ui) then return end
+                local shown = self.GetText and self:GetText()
+                local translated = APT.CharacterLabelTranslation(shown)
+                if translated and translated ~= shown then
+                    APT._InCharacterUIFSHook = true
+                    pcall(self.SetText, self, translated)
+                    APT._InCharacterUIFSHook = false
+                end
+            end)
         end
     end
-    for _, c in ipairs({ root:GetChildren() }) do
-        WalkUIExact(c, depth + 1, hookFS)
+end
+
+local function WalkUIExact(root, depth, hookFS)
+    if not root then return end
+    depth = depth or 0
+    if depth > 12 then return end
+
+    local function ApplyRegion(r)
+        if r and r.IsObjectType and r:IsObjectType("FontString") then
+            local t = r.GetText and r:GetText()
+            local es = t and (APT.CharacterLabelTranslation(t) or TranslateStaticText(t)
+                or (db and db.patterns and MatchLinePatterns(t)))
+            if es and es ~= t then pcall(r.SetText, r, es) end
+            if hookFS then
+                pcall(HookUIFS, r)
+                pcall(APT.HookCharacterUIFS, r)
+            end
+        end
+    end
+
+    ApplyRegion(root)
+    if root.GetRegions then
+        local ok, regions = pcall(function() return { root:GetRegions() } end)
+        if ok then
+            for _, r in ipairs(regions) do ApplyRegion(r) end
+        end
+    end
+
+    if root.GetChildren then
+        local ok, children = pcall(function() return { root:GetChildren() } end)
+        if ok then
+            for _, c in ipairs(children) do WalkUIExact(c, depth + 1, hookFS) end
+        end
     end
 end
 
 local charDelay
-local function TranslateCharacterFrame()
-    if not (db and db.ui) then return end
+function APT.TranslateCharacterRoots()
     pcall(WalkUIExact, CharacterFrame)
     pcall(WalkUIExact, PaperDollFrame)
     pcall(WalkUIExact, _G["AscensionCharacterFrame"], 0, true)
+    pcall(WalkUIExact, _G["AscensionCharacterStatsPanel"], 0, true)
+end
+
+local function TranslateCharacterFrame()
+    if not (db and db.ui) then return end
+    APT.TranslateCharacterRoots()
     if not charDelay then
         charDelay = CreateFrame("Frame")
     end
@@ -3293,17 +3556,23 @@ local function TranslateCharacterFrame()
         if elapsed < 0.3 then return end
         elapsed = 0
         shots = shots + 1
-        pcall(WalkUIExact, CharacterFrame)
-        pcall(WalkUIExact, PaperDollFrame)
-        pcall(WalkUIExact, _G["AscensionCharacterFrame"], 0, true)
+        APT.TranslateCharacterRoots()
         if shots >= 3 then
             self:SetScript("OnUpdate", nil)
         end
     end)
 end
 
-if CharacterFrame and CharacterFrame.HookScript then
-    CharacterFrame:HookScript("OnShow", TranslateCharacterFrame)
+APT._CharacterShowHooks = APT._CharacterShowHooks or setmetatable({}, { __mode = "k" })
+for _, frameName in ipairs({
+    "CharacterFrame", "AscensionCharacterFrame", "AscensionCharacterStatsPanel",
+}) do
+    local characterPanel = _G[frameName]
+    if characterPanel and characterPanel.HookScript
+        and not APT._CharacterShowHooks[characterPanel] then
+        APT._CharacterShowHooks[characterPanel] = true
+        characterPanel:HookScript("OnShow", TranslateCharacterFrame)
+    end
 end
 APT.TranslateCharacterFrame = TranslateCharacterFrame
 
@@ -3642,7 +3911,10 @@ frame:SetScript("OnEvent", function(self, event, arg1)
         local acf = _G["AscensionCharacterFrame"]
         if acf and acf.HookScript and not APT._charHooked then
             APT._charHooked = true
-            acf:HookScript("OnShow", TranslateCharacterFrame)
+            if not APT._CharacterShowHooks[acf] then
+                APT._CharacterShowHooks[acf] = true
+                acf:HookScript("OnShow", TranslateCharacterFrame)
+            end
 
             local statsScroll = _G["AscensionCharacterStatsPanelScrollFrame"]
             local statsPass = CreateFrame("Frame")
@@ -3673,6 +3945,11 @@ frame:SetScript("OnEvent", function(self, event, arg1)
 
     AscensionPTBRDB = AscensionPTBRDB or {}
     db = AscensionPTBRDB
+    -- Migração da antiga abordagem: traduções automáticas não são mais
+    -- persistidas. O banco salvo mantém apenas preferências do addon.
+    db.qauto = nil
+    db.qautoVersion = nil
+    db.qcaptured = nil
     for k, v in pairs(defaults) do
         if db[k] == nil then db[k] = v end
     end

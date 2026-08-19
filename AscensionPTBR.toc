@@ -2,7 +2,7 @@
 ## Title: AscensionPTBR |cff33ff99Português (Brasil)|r
 ## Notes: Tradução PT-BR para o Project Ascension: missões, habilidades, itens e interfaces. Inspirado nos trabalhos de GabrielBosco e HideXs.
 ## Author: Tuofxit
-## Version: 1.4.19
+## Version: 1.4.54
 ## X-GitHub-Repo: tuofxit/AscensionPT-BR
 ## SavedVariables: AscensionPTBRDB
 
@@ -11,6 +11,7 @@ data\Patterns.lua
 data\CustomUI.lua
 data\ServerUI.lua
 data\UIStrings.lua
+data\CharacterStats.lua
 data\Achievements.lua
 data\SpellNames.lua
 data\SpellDescs.lua
